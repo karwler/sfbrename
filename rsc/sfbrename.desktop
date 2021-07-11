@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=sfbrename
+Exec=bin/sfbrename
+Icon=sfbrename
+Comment=Tool for batch renaming files
+GenericName=Bulk file renamer
+Keywords=file;renamer
+Categories=Utility
+Type=Application
+Terminal=false
+StartupNotify=false

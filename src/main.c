@@ -2,11 +2,38 @@
 #include "rename.h"
 #include "main.h"
 #include <sys/stat.h>
+#include <zlib.h>
 
-#define MAIN_GLADE_PATH "main.glade"
+#define MAIN_GLADE_PATH "share/sfbrename/main.glade.gz"
+#ifdef APPIMAGE
+#define WINDOW_ICON_PATH "sfbrename.png"
+#else
+#define WINDOW_ICON_PATH "share/sfbrename/sfbrename.png"
+#endif
 #define DEFAULT_PRINT_BUFFER_SIZE 1024
+#define INFLATED_SIZE 40000
+#define INFLATE_INCREMENT 10000
 
 static void autoPreview(Window* win);
+
+static uint8* readGzip(const char* path, size_t* olen) {
+	gzFile file = gzopen(path, "rb");
+	if (!file)
+		return NULL;
+
+	*olen = 0;
+	size_t siz = INFLATED_SIZE;
+	uint8* str = malloc(siz);
+	for (;;) {
+		*olen += gzread(file, str + *olen, siz - *olen);
+		if (*olen < siz)
+			break;
+		siz += INFLATE_INCREMENT;
+		str = realloc(str, siz);
+	}
+	gzclose(file);
+	return str;
+}
 
 void addFile(Window* win, const char* file) {
 	if (!g_utf8_validate(file, -1, NULL)) {
@@ -83,7 +110,7 @@ int showMessageBox(Window* win, GtkMessageType type, GtkButtonsType buttons, con
 
 G_MODULE_EXPORT void activateOpen(GtkMenuItem* menuitem, Window* win) {
 	GtkFileChooserDialog* dialog = GTK_FILE_CHOOSER_DIALOG(gtk_file_chooser_dialog_new("Open File", win->window, GTK_FILE_CHOOSER_ACTION_OPEN, "Cancel", GTK_RESPONSE_CANCEL, "Open", GTK_RESPONSE_ACCEPT, NULL));
-	gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(dialog), getenv("HOME"));
+	gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(dialog), g_get_home_dir());
 	gtk_file_chooser_set_select_multiple(GTK_FILE_CHOOSER(dialog), true);
 
 	if (gtk_dialog_run(GTK_DIALOG(dialog)) == GTK_RESPONSE_ACCEPT) {
@@ -272,25 +299,6 @@ static void runConsole(Window* win) {
 		consolePreview(win);
 }
 
-static GtkBuilder* initBuilder() {
-	char path[PATH_MAX];
-	size_t plen = readlink("/proc/self/exe", path, PATH_MAX);
-	if (plen < PATH_MAX) {
-		char* pos = memrchr(path, '/', plen);
-		strcpy(pos && (pos - path) + 1 + strlen(MAIN_GLADE_PATH) < PATH_MAX ? pos + 1 : path, MAIN_GLADE_PATH);
-	} else
-		strcpy(path, MAIN_GLADE_PATH);
-
-	GtkBuilder* builder = gtk_builder_new();
-	GError* error = NULL;
-	if (!gtk_builder_add_from_file(builder, path, &error)) {
-		g_printerr("Error loading file: %s\n", error->message);
-		g_clear_error(&error);
-		return NULL;
-	}
-	return builder;
-}
-
 static void initWindow(GtkApplication* app, Window* win) {
 	Arguments* args = win->args;
 	if (args->noGui) {
@@ -304,12 +312,34 @@ static void initWindow(GtkApplication* app, Window* win) {
 		g_application_quit(G_APPLICATION(app));
 		return;
 	}
-	GtkBuilder* builder = initBuilder();
-	if (!builder) {
-		g_application_quit(G_APPLICATION(app));
+
+	char path[PATH_MAX];
+	size_t plen = readlink("/proc/self/exe", path, PATH_MAX);
+	if (plen < PATH_MAX) {
+		char* pos = memrchr(path, '/', --plen);
+		if (pos)
+			pos = memrchr(path, '/', pos - path - (pos != path));
+		plen = pos && pos - path + strlen(MAIN_GLADE_PATH) + 2 < PATH_MAX ? pos - path + 1 : 0;
+	} else
+		plen = 0;
+	strcpy(path + plen, MAIN_GLADE_PATH);
+
+	size_t glen;
+	char* glade = (char*)readGzip(path, &glen);
+	if (!glade) {
+		g_printerr("Failed to read %s\n", MAIN_GLADE_PATH);
 		return;
 	}
 
+	GtkBuilder* builder = gtk_builder_new();
+	GError* error = NULL;
+	if (!gtk_builder_add_from_string(builder, glade, glen, &error)) {
+		free(glade);
+		g_printerr("Failed to load %s: %s\n", MAIN_GLADE_PATH, error->message);
+		g_clear_error(&error);
+		return;
+	}
+	free(glade);
 	win->window = GTK_WINDOW(gtk_builder_get_object(builder, "window"));
 	win->mbAutoPreview = GTK_CHECK_MENU_ITEM(gtk_builder_get_object(builder, "mbAutoPreview"));
 	win->tblFiles = GTK_TREE_VIEW(gtk_builder_get_object(builder, "tblFiles"));
@@ -436,6 +466,11 @@ static void initWindow(GtkApplication* app, Window* win) {
 	gtk_check_menu_item_set_active(mbAutoPreview, !args->noAutoPreview);
 	free(win->args);
 	win->args = NULL;
+
+	if (plen + strlen(WINDOW_ICON_PATH) + 1 < PATH_MAX) {
+		strcpy(path + plen, WINDOW_ICON_PATH);
+		gtk_window_set_icon_from_file(win->window, path, NULL);
+	}
 
 	gtk_builder_connect_signals(builder, win);
 	g_object_unref(builder);
