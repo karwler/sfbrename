@@ -1,0 +1,153 @@
+# Anjuta
+/.anjuta/
+/.anjuta_sym_db.db
+
+# C
+*.d
+*.o
+*.ko
+*.obj
+*.elf
+*.ilk
+*.map
+*.exp
+*.gch
+*.pch
+*.lib
+*.a
+*.la
+*.lo
+*.dll
+*.so
+*.so.*
+*.dylib
+*.exe
+*.out
+*.app
+*.i*86
+*.x86_64
+*.hex
+*.dSYM/
+*.su
+*.idb
+*.pdb
+*.mod*
+*.cmd
+.tmp_versions/
+modules.order
+Module.symvers
+Mkfile.old
+dkms.conf
+
+# CMake
+CMakeLists.txt.user
+CMakeCache.txt
+CMakeFiles
+CMakeScripts
+Testing
+Makefile
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+_deps
+CMakeUserPresets.json
+*-prefix/
+
+# CodeBlocks
+*.layout
+*.depend
+bin/
+obj/
+
+# Eclipse
+.metadata
+tmp/
+*.tmp
+*.bak
+*.swp
+*~.nib
+local.properties
+.settings/
+.loadpath
+.recommenders
+.externalToolBuilders/
+*.launch
+*.pydevproject
+.cproject
+.autotools
+.factorypath
+.buildpath
+.target
+.tern-project
+.texlipse
+.springBeans
+.recommenders/
+.apt_generated/
+.apt_generated_test/
+.cache-main
+.scala_dependencies
+.worksheet
+.project
+.sts4-cache/
+
+# Kate
+.*.kate-swp
+.swp.*
+
+# KDevelop4
+*.kdev4
+.kdev4/
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# Ninja
+.ninja_deps
+.ninja_log
+
+### QtCreator ###
+*.files
+*.includes
+*.config
+*.creator
+*.creator.user*
+*.autosave
+*.cxxflags
+*.cflags
+
+# SublimeText
+*.tmlanguage.cache
+*.tmPreferences.cache
+*.stTheme.cache
+*.sublime-workspace
+*.sublime-project
+sftp-config.json
+Package Control.last-run
+Package Control.ca-list
+Package Control.ca-bundle
+Package Control.system-ca-bundle
+Package Control.cache/
+Package Control.ca-certs/
+Package Control.merged-ca-bundle
+Package Control.user-ca-bundle
+oscrypto-ca-bundle.crt
+bh_unicode_properties.cache
+GitHub.sublime-settings
+
+# VisualStudioCode
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+.history
+.ionide
+
+# Specific
+build*/

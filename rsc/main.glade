@@ -1,0 +1,1221 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Generated with glade 3.38.2 -->
+<interface>
+  <requires lib="gtk+" version="3.4"/>
+  <object class="GtkAdjustment" id="addAtAdj">
+    <property name="lower">-4095</property>
+    <property name="upper">4095</property>
+    <property name="step-increment">1</property>
+    <property name="page-increment">10</property>
+  </object>
+  <object class="GtkListStore" id="lsFiles">
+    <columns>
+      <!-- column-name name -->
+      <column type="gchararray"/>
+      <!-- column-name newName -->
+      <column type="gchararray"/>
+      <!-- column-name directory -->
+      <column type="gchararray"/>
+    </columns>
+  </object>
+  <object class="GtkAdjustment" id="numberBaseAdj">
+    <property name="lower">2</property>
+    <property name="upper">64</property>
+    <property name="value">10</property>
+    <property name="step-increment">1</property>
+    <property name="page-increment">10</property>
+  </object>
+  <object class="GtkAdjustment" id="numberLocationAdj">
+    <property name="lower">-4095</property>
+    <property name="upper">4095</property>
+    <property name="value">-1</property>
+    <property name="step-increment">1</property>
+    <property name="page-increment">10</property>
+  </object>
+  <object class="GtkAdjustment" id="numberPaddingAdj">
+    <property name="lower">1</property>
+    <property name="upper">10</property>
+    <property name="value">1</property>
+    <property name="step-increment">1</property>
+    <property name="page-increment">10</property>
+  </object>
+  <object class="GtkAdjustment" id="numberStartAdj">
+    <property name="lower">-2147483647</property>
+    <property name="upper">2147483647</property>
+    <property name="step-increment">1</property>
+    <property name="page-increment">10</property>
+  </object>
+  <object class="GtkAdjustment" id="numberStepAdj">
+    <property name="lower">-2147483647</property>
+    <property name="upper">2147483647</property>
+    <property name="value">1</property>
+    <property name="step-increment">1</property>
+    <property name="page-increment">10</property>
+  </object>
+  <object class="GtkAdjustment" id="removeFirstAdj">
+    <property name="upper">4095</property>
+    <property name="step-increment">1</property>
+    <property name="page-increment">10</property>
+  </object>
+  <object class="GtkAdjustment" id="removeFromAdj">
+    <property name="upper">4095</property>
+    <property name="step-increment">1</property>
+    <property name="page-increment">10</property>
+  </object>
+  <object class="GtkAdjustment" id="removeLastAdj">
+    <property name="upper">4095</property>
+    <property name="step-increment">1</property>
+    <property name="page-increment">10</property>
+  </object>
+  <object class="GtkAdjustment" id="removeToAdj">
+    <property name="upper">4095</property>
+    <property name="step-increment">1</property>
+    <property name="page-increment">10</property>
+  </object>
+  <object class="GtkAdjustment" id="sbExtensionElementsAdj">
+    <property name="lower">-1</property>
+    <property name="upper">4095</property>
+    <property name="value">-1</property>
+    <property name="step-increment">1</property>
+    <property name="page-increment">10</property>
+  </object>
+  <object class="GtkApplicationWindow" id="window">
+    <property name="visible">True</property>
+    <property name="can-focus">False</property>
+    <property name="border-width">10</property>
+    <property name="title">sfbrename</property>
+    <property name="default-width">1000</property>
+    <property name="default-height">780</property>
+    <child>
+      <object class="GtkBox">
+        <property name="visible">True</property>
+        <property name="can-focus">False</property>
+        <property name="orientation">vertical</property>
+        <child>
+          <object class="GtkMenuBar">
+            <property name="visible">True</property>
+            <property name="can-focus">False</property>
+            <child>
+              <object class="GtkMenuItem">
+                <property name="visible">True</property>
+                <property name="can-focus">False</property>
+                <property name="label" translatable="yes">_File</property>
+                <property name="use-underline">True</property>
+                <child type="submenu">
+                  <object class="GtkMenu">
+                    <property name="visible">True</property>
+                    <property name="can-focus">False</property>
+                    <child>
+                      <object class="GtkMenuItem" id="mbOpen">
+                        <property name="visible">True</property>
+                        <property name="can-focus">False</property>
+                        <property name="label">Open</property>
+                        <signal name="activate" handler="activateOpen" swapped="no"/>
+                        <accelerator key="o" signal="activate" modifiers="GDK_CONTROL_MASK"/>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkSeparatorMenuItem">
+                        <property name="visible">True</property>
+                        <property name="can-focus">False</property>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkMenuItem" id="mbQuit">
+                        <property name="visible">True</property>
+                        <property name="can-focus">False</property>
+                        <property name="label">Quit</property>
+                        <signal name="activate" handler="activateQuit" swapped="no"/>
+                        <accelerator key="q" signal="activate" modifiers="GDK_CONTROL_MASK"/>
+                      </object>
+                    </child>
+                  </object>
+                </child>
+              </object>
+            </child>
+            <child>
+              <object class="GtkMenuItem">
+                <property name="visible">True</property>
+                <property name="can-focus">False</property>
+                <property name="label" translatable="yes">Edit</property>
+                <child type="submenu">
+                  <object class="GtkMenu">
+                    <property name="visible">True</property>
+                    <property name="can-focus">False</property>
+                    <child>
+                      <object class="GtkCheckMenuItem" id="mbAutoPreview">
+                        <property name="visible">True</property>
+                        <property name="can-focus">False</property>
+                        <property name="label" translatable="yes">Auto Preview</property>
+                        <property name="active">True</property>
+                        <signal name="activate" handler="activateAutoPreview" swapped="no"/>
+                        <accelerator key="u" signal="activate" modifiers="GDK_CONTROL_MASK"/>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkSeparatorMenuItem">
+                        <property name="visible">True</property>
+                        <property name="can-focus">False</property>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkMenuItem" id="mbClear">
+                        <property name="visible">True</property>
+                        <property name="can-focus">False</property>
+                        <property name="label">Clear</property>
+                        <signal name="activate" handler="activateClear" swapped="no"/>
+                        <accelerator key="c" signal="activate" modifiers="GDK_CONTROL_MASK"/>
+                      </object>
+                    </child>
+                  </object>
+                </child>
+              </object>
+            </child>
+          </object>
+          <packing>
+            <property name="expand">False</property>
+            <property name="fill">True</property>
+            <property name="position">0</property>
+          </packing>
+        </child>
+        <child>
+          <object class="GtkBox">
+            <property name="visible">True</property>
+            <property name="can-focus">False</property>
+            <child>
+              <object class="GtkScrolledWindow">
+                <property name="visible">True</property>
+                <property name="can-focus">True</property>
+                <property name="shadow-type">in</property>
+                <property name="min-content-width">450</property>
+                <child>
+                  <object class="GtkViewport">
+                    <property name="visible">True</property>
+                    <property name="can-focus">False</property>
+                    <child>
+                      <object class="GtkBox">
+                        <property name="visible">True</property>
+                        <property name="can-focus">False</property>
+                        <property name="orientation">vertical</property>
+                        <property name="spacing">8</property>
+                        <child>
+                          <object class="GtkLabel">
+                            <property name="visible">True</property>
+                            <property name="can-focus">False</property>
+                            <property name="halign">start</property>
+                            <property name="label" translatable="yes">Extension</property>
+                            <attributes>
+                              <attribute name="weight" value="bold"/>
+                            </attributes>
+                          </object>
+                          <packing>
+                            <property name="expand">False</property>
+                            <property name="fill">True</property>
+                            <property name="position">0</property>
+                          </packing>
+                        </child>
+                        <child>
+                          <!-- n-columns=3 n-rows=3 -->
+                          <object class="GtkGrid">
+                            <property name="visible">True</property>
+                            <property name="can-focus">False</property>
+                            <property name="row-spacing">4</property>
+                            <property name="column-spacing">8</property>
+                            <child>
+                              <object class="GtkEntry" id="etExtension">
+                                <property name="width-request">179</property>
+                                <property name="visible">True</property>
+                                <property name="can-focus">True</property>
+                                <property name="tooltip-text" translatable="yes">New extension name or what to replace</property>
+                                <property name="max-length">4095</property>
+                                <signal name="changed" handler="valueChangeEtExtension" swapped="no"/>
+                              </object>
+                              <packing>
+                                <property name="left-attach">1</property>
+                                <property name="top-attach">0</property>
+                              </packing>
+                            </child>
+                            <child>
+                              <object class="GtkComboBoxText" id="cmbExtensionMode">
+                                <property name="visible">True</property>
+                                <property name="can-focus">False</property>
+                                <property name="tooltip-text" translatable="yes">Extension rename type</property>
+                                <property name="halign">start</property>
+                                <property name="active">0</property>
+                                <items>
+                                  <item translatable="yes">Keep</item>
+                                  <item translatable="yes">Rename</item>
+                                  <item translatable="yes">Replace</item>
+                                  <item translatable="yes">Lower case</item>
+                                  <item translatable="yes">Upper case</item>
+                                  <item translatable="yes">Reverse</item>
+                                </items>
+                                <signal name="changed" handler="valueChangeCmbGeneric" swapped="no"/>
+                              </object>
+                              <packing>
+                                <property name="left-attach">0</property>
+                                <property name="top-attach">0</property>
+                              </packing>
+                            </child>
+                            <child>
+                              <object class="GtkLabel">
+                                <property name="visible">True</property>
+                                <property name="can-focus">False</property>
+                                <property name="halign">end</property>
+                                <property name="label" translatable="yes">with</property>
+                              </object>
+                              <packing>
+                                <property name="left-attach">0</property>
+                                <property name="top-attach">1</property>
+                              </packing>
+                            </child>
+                            <child>
+                              <object class="GtkEntry" id="etExtensionReplace">
+                                <property name="width-request">179</property>
+                                <property name="visible">True</property>
+                                <property name="can-focus">True</property>
+                                <property name="tooltip-text" translatable="yes">Replace the above string with this</property>
+                                <property name="max-length">4095</property>
+                                <signal name="changed" handler="valueChangeEtExtensionReplace" swapped="no"/>
+                              </object>
+                              <packing>
+                                <property name="left-attach">1</property>
+                                <property name="top-attach">1</property>
+                              </packing>
+                            </child>
+                            <child>
+                              <object class="GtkCheckButton" id="cbExtensionCi">
+                                <property name="label" translatable="yes">Case Insensitive</property>
+                                <property name="visible">True</property>
+                                <property name="can-focus">True</property>
+                                <property name="receives-default">False</property>
+                                <property name="tooltip-text" translatable="yes">Case insensitive search for replace</property>
+                                <property name="halign">start</property>
+                                <property name="draw-indicator">True</property>
+                                <signal name="toggled" handler="toggleCbExtensionReplace" swapped="no"/>
+                              </object>
+                              <packing>
+                                <property name="left-attach">2</property>
+                                <property name="top-attach">0</property>
+                              </packing>
+                            </child>
+                            <child>
+                              <object class="GtkCheckButton" id="cbExtensionRegex">
+                                <property name="label" translatable="yes">Regular Expression</property>
+                                <property name="visible">True</property>
+                                <property name="can-focus">True</property>
+                                <property name="receives-default">False</property>
+                                <property name="tooltip-text" translatable="yes">When replacing, use the above field as a regular expression</property>
+                                <property name="halign">start</property>
+                                <property name="draw-indicator">True</property>
+                                <signal name="toggled" handler="toggleCbExtensionReplace" swapped="no"/>
+                              </object>
+                              <packing>
+                                <property name="left-attach">2</property>
+                                <property name="top-attach">1</property>
+                              </packing>
+                            </child>
+                            <child>
+                              <object class="GtkLabel">
+                                <property name="visible">True</property>
+                                <property name="can-focus">False</property>
+                                <property name="halign">end</property>
+                                <property name="label" translatable="yes">Elements</property>
+                              </object>
+                              <packing>
+                                <property name="left-attach">0</property>
+                                <property name="top-attach">2</property>
+                              </packing>
+                            </child>
+                            <child>
+                              <object class="GtkSpinButton" id="sbExtensionElements">
+                                <property name="width-request">179</property>
+                                <property name="visible">True</property>
+                                <property name="can-focus">True</property>
+                                <property name="tooltip-text" translatable="yes">Number of dots to detect an extension
+Set to a negative value to use all dots, excluding an initial dot</property>
+                                <property name="adjustment">sbExtensionElementsAdj</property>
+                                <property name="numeric">True</property>
+                                <signal name="value-changed" handler="valueChangeSbGeneric" swapped="no"/>
+                              </object>
+                              <packing>
+                                <property name="left-attach">1</property>
+                                <property name="top-attach">2</property>
+                              </packing>
+                            </child>
+                            <child>
+                              <placeholder/>
+                            </child>
+                          </object>
+                          <packing>
+                            <property name="expand">False</property>
+                            <property name="fill">True</property>
+                            <property name="position">1</property>
+                          </packing>
+                        </child>
+                        <child>
+                          <object class="GtkLabel">
+                            <property name="visible">True</property>
+                            <property name="can-focus">False</property>
+                            <property name="halign">start</property>
+                            <property name="label" translatable="yes">Rename</property>
+                            <attributes>
+                              <attribute name="weight" value="bold"/>
+                            </attributes>
+                          </object>
+                          <packing>
+                            <property name="expand">False</property>
+                            <property name="fill">True</property>
+                            <property name="position">2</property>
+                          </packing>
+                        </child>
+                        <child>
+                          <!-- n-columns=3 n-rows=2 -->
+                          <object class="GtkGrid">
+                            <property name="visible">True</property>
+                            <property name="can-focus">False</property>
+                            <property name="row-spacing">4</property>
+                            <property name="column-spacing">8</property>
+                            <child>
+                              <object class="GtkEntry" id="etRename">
+                                <property name="width-request">179</property>
+                                <property name="visible">True</property>
+                                <property name="can-focus">True</property>
+                                <property name="tooltip-text" translatable="yes">New filename or what to replace</property>
+                                <property name="max-length">4095</property>
+                                <signal name="changed" handler="valueChangeEtRename" swapped="no"/>
+                              </object>
+                              <packing>
+                                <property name="left-attach">1</property>
+                                <property name="top-attach">0</property>
+                              </packing>
+                            </child>
+                            <child>
+                              <object class="GtkComboBoxText" id="cmbRenameMode">
+                                <property name="visible">True</property>
+                                <property name="can-focus">False</property>
+                                <property name="tooltip-text" translatable="yes">Filename rename type</property>
+                                <property name="halign">start</property>
+                                <property name="active">0</property>
+                                <items>
+                                  <item translatable="yes">Keep</item>
+                                  <item translatable="yes">Rename</item>
+                                  <item translatable="yes">Replace</item>
+                                  <item translatable="yes">Lower case</item>
+                                  <item translatable="yes">Upper case</item>
+                                  <item translatable="yes">Reverse</item>
+                                </items>
+                                <signal name="changed" handler="valueChangeCmbGeneric" swapped="no"/>
+                              </object>
+                              <packing>
+                                <property name="left-attach">0</property>
+                                <property name="top-attach">0</property>
+                              </packing>
+                            </child>
+                            <child>
+                              <object class="GtkLabel">
+                                <property name="visible">True</property>
+                                <property name="can-focus">False</property>
+                                <property name="halign">end</property>
+                                <property name="label" translatable="yes">with</property>
+                              </object>
+                              <packing>
+                                <property name="left-attach">0</property>
+                                <property name="top-attach">1</property>
+                              </packing>
+                            </child>
+                            <child>
+                              <object class="GtkEntry" id="etReplace">
+                                <property name="width-request">179</property>
+                                <property name="visible">True</property>
+                                <property name="can-focus">True</property>
+                                <property name="tooltip-text" translatable="yes">Replace the above string with this</property>
+                                <property name="max-length">4095</property>
+                                <signal name="changed" handler="valueChangeEtReplace" swapped="no"/>
+                              </object>
+                              <packing>
+                                <property name="left-attach">1</property>
+                                <property name="top-attach">1</property>
+                              </packing>
+                            </child>
+                            <child>
+                              <object class="GtkCheckButton" id="cbReplaceCi">
+                                <property name="label" translatable="yes">Case Insensitive</property>
+                                <property name="visible">True</property>
+                                <property name="can-focus">True</property>
+                                <property name="receives-default">False</property>
+                                <property name="tooltip-text" translatable="yes">Case insensitive search for replace</property>
+                                <property name="halign">start</property>
+                                <property name="draw-indicator">True</property>
+                                <signal name="toggled" handler="toggleCbReplace" swapped="no"/>
+                              </object>
+                              <packing>
+                                <property name="left-attach">2</property>
+                                <property name="top-attach">0</property>
+                              </packing>
+                            </child>
+                            <child>
+                              <object class="GtkCheckButton" id="cbReplaceRegex">
+                                <property name="label" translatable="yes">Regular Expression</property>
+                                <property name="visible">True</property>
+                                <property name="can-focus">True</property>
+                                <property name="receives-default">False</property>
+                                <property name="tooltip-text" translatable="yes">When replacing, use the above field as a regular expression</property>
+                                <property name="halign">start</property>
+                                <property name="draw-indicator">True</property>
+                                <signal name="toggled" handler="toggleCbReplace" swapped="no"/>
+                              </object>
+                              <packing>
+                                <property name="left-attach">2</property>
+                                <property name="top-attach">1</property>
+                              </packing>
+                            </child>
+                          </object>
+                          <packing>
+                            <property name="expand">False</property>
+                            <property name="fill">True</property>
+                            <property name="position">3</property>
+                          </packing>
+                        </child>
+                        <child>
+                          <object class="GtkLabel">
+                            <property name="visible">True</property>
+                            <property name="can-focus">False</property>
+                            <property name="halign">start</property>
+                            <property name="label" translatable="yes">Remove</property>
+                            <attributes>
+                              <attribute name="weight" value="bold"/>
+                            </attributes>
+                          </object>
+                          <packing>
+                            <property name="expand">False</property>
+                            <property name="fill">True</property>
+                            <property name="position">4</property>
+                          </packing>
+                        </child>
+                        <child>
+                          <!-- n-columns=4 n-rows=2 -->
+                          <object class="GtkGrid">
+                            <property name="visible">True</property>
+                            <property name="can-focus">False</property>
+                            <property name="row-spacing">4</property>
+                            <property name="column-spacing">8</property>
+                            <child>
+                              <object class="GtkLabel">
+                                <property name="visible">True</property>
+                                <property name="can-focus">False</property>
+                                <property name="halign">start</property>
+                                <property name="label" translatable="yes">First</property>
+                              </object>
+                              <packing>
+                                <property name="left-attach">0</property>
+                                <property name="top-attach">1</property>
+                              </packing>
+                            </child>
+                            <child>
+                              <object class="GtkLabel">
+                                <property name="visible">True</property>
+                                <property name="can-focus">False</property>
+                                <property name="halign">start</property>
+                                <property name="label" translatable="yes">Last</property>
+                              </object>
+                              <packing>
+                                <property name="left-attach">2</property>
+                                <property name="top-attach">1</property>
+                              </packing>
+                            </child>
+                            <child>
+                              <object class="GtkSpinButton" id="sbRemoveLast">
+                                <property name="width-request">183</property>
+                                <property name="visible">True</property>
+                                <property name="can-focus">True</property>
+                                <property name="tooltip-text" translatable="yes">Remove the last n characters</property>
+                                <property name="adjustment">removeLastAdj</property>
+                                <property name="numeric">True</property>
+                                <signal name="value-changed" handler="valueChangeSbGeneric" swapped="no"/>
+                              </object>
+                              <packing>
+                                <property name="left-attach">3</property>
+                                <property name="top-attach">1</property>
+                              </packing>
+                            </child>
+                            <child>
+                              <object class="GtkLabel">
+                                <property name="visible">True</property>
+                                <property name="can-focus">False</property>
+                                <property name="halign">start</property>
+                                <property name="label" translatable="yes">From</property>
+                              </object>
+                              <packing>
+                                <property name="left-attach">0</property>
+                                <property name="top-attach">0</property>
+                              </packing>
+                            </child>
+                            <child>
+                              <object class="GtkSpinButton" id="sbRemoveFrom">
+                                <property name="width-request">183</property>
+                                <property name="visible">True</property>
+                                <property name="can-focus">True</property>
+                                <property name="tooltip-text" translatable="yes">Remove characters start index</property>
+                                <property name="adjustment">removeFromAdj</property>
+                                <property name="numeric">True</property>
+                                <signal name="value-changed" handler="valueChangeSbRemoveFrom" swapped="no"/>
+                              </object>
+                              <packing>
+                                <property name="left-attach">1</property>
+                                <property name="top-attach">0</property>
+                              </packing>
+                            </child>
+                            <child>
+                              <object class="GtkLabel">
+                                <property name="visible">True</property>
+                                <property name="can-focus">False</property>
+                                <property name="label" translatable="yes">to</property>
+                              </object>
+                              <packing>
+                                <property name="left-attach">2</property>
+                                <property name="top-attach">0</property>
+                              </packing>
+                            </child>
+                            <child>
+                              <object class="GtkSpinButton" id="sbRemoveTo">
+                                <property name="width-request">183</property>
+                                <property name="visible">True</property>
+                                <property name="can-focus">True</property>
+                                <property name="tooltip-text" translatable="yes">Remove characters end index</property>
+                                <property name="adjustment">removeToAdj</property>
+                                <property name="numeric">True</property>
+                                <signal name="value-changed" handler="valueChangeSbRemoveTo" swapped="no"/>
+                              </object>
+                              <packing>
+                                <property name="left-attach">3</property>
+                                <property name="top-attach">0</property>
+                              </packing>
+                            </child>
+                            <child>
+                              <object class="GtkSpinButton" id="sbRemoveFirst">
+                                <property name="width-request">183</property>
+                                <property name="visible">True</property>
+                                <property name="can-focus">True</property>
+                                <property name="tooltip-text" translatable="yes">Remove the first n characters</property>
+                                <property name="adjustment">removeFirstAdj</property>
+                                <property name="numeric">True</property>
+                                <signal name="value-changed" handler="valueChangeSbGeneric" swapped="no"/>
+                              </object>
+                              <packing>
+                                <property name="left-attach">1</property>
+                                <property name="top-attach">1</property>
+                              </packing>
+                            </child>
+                          </object>
+                          <packing>
+                            <property name="expand">False</property>
+                            <property name="fill">True</property>
+                            <property name="position">5</property>
+                          </packing>
+                        </child>
+                        <child>
+                          <object class="GtkLabel">
+                            <property name="visible">True</property>
+                            <property name="can-focus">False</property>
+                            <property name="halign">start</property>
+                            <property name="label" translatable="yes">Add</property>
+                            <attributes>
+                              <attribute name="weight" value="bold"/>
+                            </attributes>
+                          </object>
+                          <packing>
+                            <property name="expand">False</property>
+                            <property name="fill">True</property>
+                            <property name="position">6</property>
+                          </packing>
+                        </child>
+                        <child>
+                          <!-- n-columns=4 n-rows=2 -->
+                          <object class="GtkGrid">
+                            <property name="visible">True</property>
+                            <property name="can-focus">False</property>
+                            <property name="row-spacing">4</property>
+                            <property name="column-spacing">8</property>
+                            <child>
+                              <object class="GtkLabel">
+                                <property name="visible">True</property>
+                                <property name="can-focus">False</property>
+                                <property name="halign">start</property>
+                                <property name="label" translatable="yes">Prefix</property>
+                              </object>
+                              <packing>
+                                <property name="left-attach">0</property>
+                                <property name="top-attach">1</property>
+                              </packing>
+                            </child>
+                            <child>
+                              <object class="GtkEntry" id="etAddPrefix">
+                                <property name="width-request">175</property>
+                                <property name="visible">True</property>
+                                <property name="can-focus">True</property>
+                                <property name="tooltip-text" translatable="yes">Prepend a string</property>
+                                <property name="max-length">4095</property>
+                                <signal name="changed" handler="valueChangeEtGeneric" swapped="no"/>
+                              </object>
+                              <packing>
+                                <property name="left-attach">1</property>
+                                <property name="top-attach">1</property>
+                              </packing>
+                            </child>
+                            <child>
+                              <object class="GtkLabel">
+                                <property name="visible">True</property>
+                                <property name="can-focus">False</property>
+                                <property name="halign">start</property>
+                                <property name="label" translatable="yes">Suffix</property>
+                              </object>
+                              <packing>
+                                <property name="left-attach">2</property>
+                                <property name="top-attach">1</property>
+                              </packing>
+                            </child>
+                            <child>
+                              <object class="GtkEntry" id="etAddSuffix">
+                                <property name="width-request">175</property>
+                                <property name="visible">True</property>
+                                <property name="can-focus">True</property>
+                                <property name="tooltip-text" translatable="yes">Append a string</property>
+                                <property name="max-length">4095</property>
+                                <signal name="changed" handler="valueChangeEtGeneric" swapped="no"/>
+                              </object>
+                              <packing>
+                                <property name="left-attach">3</property>
+                                <property name="top-attach">1</property>
+                              </packing>
+                            </child>
+                            <child>
+                              <object class="GtkLabel">
+                                <property name="visible">True</property>
+                                <property name="can-focus">False</property>
+                                <property name="halign">start</property>
+                                <property name="label" translatable="yes">Insert</property>
+                              </object>
+                              <packing>
+                                <property name="left-attach">0</property>
+                                <property name="top-attach">0</property>
+                              </packing>
+                            </child>
+                            <child>
+                              <object class="GtkEntry" id="etAddInsert">
+                                <property name="width-request">175</property>
+                                <property name="visible">True</property>
+                                <property name="can-focus">True</property>
+                                <property name="tooltip-text" translatable="yes">Insert a string at the index set in the field to the right</property>
+                                <property name="max-length">4095</property>
+                                <signal name="changed" handler="valueChangeEtGeneric" swapped="no"/>
+                              </object>
+                              <packing>
+                                <property name="left-attach">1</property>
+                                <property name="top-attach">0</property>
+                              </packing>
+                            </child>
+                            <child>
+                              <object class="GtkLabel">
+                                <property name="visible">True</property>
+                                <property name="can-focus">False</property>
+                                <property name="label" translatable="yes">at</property>
+                              </object>
+                              <packing>
+                                <property name="left-attach">2</property>
+                                <property name="top-attach">0</property>
+                              </packing>
+                            </child>
+                            <child>
+                              <object class="GtkSpinButton" id="sbAddAt">
+                                <property name="width-request">175</property>
+                                <property name="visible">True</property>
+                                <property name="can-focus">True</property>
+                                <property name="tooltip-text" translatable="yes">Insert the string set in the field to the left at this index
+Use a negative index to set one relative the the back</property>
+                                <property name="adjustment">addAtAdj</property>
+                                <property name="numeric">True</property>
+                                <signal name="value-changed" handler="valueChangeSbGeneric" swapped="no"/>
+                              </object>
+                              <packing>
+                                <property name="left-attach">3</property>
+                                <property name="top-attach">0</property>
+                              </packing>
+                            </child>
+                          </object>
+                          <packing>
+                            <property name="expand">False</property>
+                            <property name="fill">True</property>
+                            <property name="position">7</property>
+                          </packing>
+                        </child>
+                        <child>
+                          <object class="GtkCheckButton" id="cbNumber">
+                            <property name="label" translatable="yes">Number</property>
+                            <property name="visible">True</property>
+                            <property name="can-focus">True</property>
+                            <property name="receives-default">False</property>
+                            <property name="halign">start</property>
+                            <property name="draw-indicator">True</property>
+                            <signal name="toggled" handler="toggleCbGeneric" swapped="no"/>
+                          </object>
+                          <packing>
+                            <property name="expand">False</property>
+                            <property name="fill">True</property>
+                            <property name="position">8</property>
+                          </packing>
+                        </child>
+                        <child>
+                          <!-- n-columns=4 n-rows=4 -->
+                          <object class="GtkGrid">
+                            <property name="visible">True</property>
+                            <property name="can-focus">False</property>
+                            <property name="row-spacing">4</property>
+                            <property name="column-spacing">8</property>
+                            <child>
+                              <object class="GtkLabel">
+                                <property name="visible">True</property>
+                                <property name="can-focus">False</property>
+                                <property name="halign">start</property>
+                                <property name="label" translatable="yes">Location</property>
+                              </object>
+                              <packing>
+                                <property name="left-attach">0</property>
+                                <property name="top-attach">0</property>
+                              </packing>
+                            </child>
+                            <child>
+                              <object class="GtkLabel">
+                                <property name="visible">True</property>
+                                <property name="can-focus">False</property>
+                                <property name="halign">start</property>
+                                <property name="label" translatable="yes">Start</property>
+                              </object>
+                              <packing>
+                                <property name="left-attach">0</property>
+                                <property name="top-attach">1</property>
+                              </packing>
+                            </child>
+                            <child>
+                              <object class="GtkLabel">
+                                <property name="visible">True</property>
+                                <property name="can-focus">False</property>
+                                <property name="halign">start</property>
+                                <property name="label" translatable="yes">Step</property>
+                              </object>
+                              <packing>
+                                <property name="left-attach">2</property>
+                                <property name="top-attach">1</property>
+                              </packing>
+                            </child>
+                            <child>
+                              <object class="GtkLabel">
+                                <property name="visible">True</property>
+                                <property name="can-focus">False</property>
+                                <property name="halign">start</property>
+                                <property name="label" translatable="yes">Padding</property>
+                              </object>
+                              <packing>
+                                <property name="left-attach">0</property>
+                                <property name="top-attach">2</property>
+                              </packing>
+                            </child>
+                            <child>
+                              <object class="GtkLabel">
+                                <property name="visible">True</property>
+                                <property name="can-focus">False</property>
+                                <property name="label" translatable="yes">with</property>
+                              </object>
+                              <packing>
+                                <property name="left-attach">2</property>
+                                <property name="top-attach">2</property>
+                              </packing>
+                            </child>
+                            <child>
+                              <object class="GtkSpinButton" id="sbNumberPadding">
+                                <property name="visible">True</property>
+                                <property name="can-focus">True</property>
+                                <property name="tooltip-text" translatable="yes">Fill n missing digits</property>
+                                <property name="adjustment">numberPaddingAdj</property>
+                                <property name="numeric">True</property>
+                                <signal name="value-changed" handler="valueChangeSbNumber" swapped="no"/>
+                              </object>
+                              <packing>
+                                <property name="left-attach">1</property>
+                                <property name="top-attach">2</property>
+                              </packing>
+                            </child>
+                            <child>
+                              <object class="GtkSpinButton" id="sbNumberStart">
+                                <property name="visible">True</property>
+                                <property name="can-focus">True</property>
+                                <property name="tooltip-text" translatable="yes">First number in the sequence</property>
+                                <property name="adjustment">numberStartAdj</property>
+                                <property name="numeric">True</property>
+                                <signal name="value-changed" handler="valueChangeSbNumber" swapped="no"/>
+                              </object>
+                              <packing>
+                                <property name="left-attach">1</property>
+                                <property name="top-attach">1</property>
+                              </packing>
+                            </child>
+                            <child>
+                              <object class="GtkSpinButton" id="sbNumberStep">
+                                <property name="visible">True</property>
+                                <property name="can-focus">True</property>
+                                <property name="tooltip-text" translatable="yes">Increment of the number sequence</property>
+                                <property name="adjustment">numberStepAdj</property>
+                                <property name="numeric">True</property>
+                                <signal name="value-changed" handler="valueChangeSbNumber" swapped="no"/>
+                              </object>
+                              <packing>
+                                <property name="left-attach">3</property>
+                                <property name="top-attach">1</property>
+                              </packing>
+                            </child>
+                            <child>
+                              <object class="GtkEntry" id="etNumberPadding">
+                                <property name="visible">True</property>
+                                <property name="can-focus">True</property>
+                                <property name="tooltip-text" translatable="yes">Fill missing digits with this string</property>
+                                <property name="max-length">4095</property>
+                                <property name="text" translatable="yes">0</property>
+                                <signal name="changed" handler="valueChangeEtNumber" swapped="no"/>
+                              </object>
+                              <packing>
+                                <property name="left-attach">3</property>
+                                <property name="top-attach">2</property>
+                              </packing>
+                            </child>
+                            <child>
+                              <object class="GtkSpinButton" id="sbNumberLocation">
+                                <property name="visible">True</property>
+                                <property name="can-focus">True</property>
+                                <property name="tooltip-text" translatable="yes">Index where to insert the number
+Use a negative index to set one relative the the back</property>
+                                <property name="adjustment">numberLocationAdj</property>
+                                <property name="numeric">True</property>
+                                <signal name="value-changed" handler="valueChangeSbNumber" swapped="no"/>
+                              </object>
+                              <packing>
+                                <property name="left-attach">1</property>
+                                <property name="top-attach">0</property>
+                              </packing>
+                            </child>
+                            <child>
+                              <object class="GtkLabel">
+                                <property name="visible">True</property>
+                                <property name="can-focus">False</property>
+                                <property name="halign">start</property>
+                                <property name="label" translatable="yes">Base</property>
+                              </object>
+                              <packing>
+                                <property name="left-attach">2</property>
+                                <property name="top-attach">0</property>
+                              </packing>
+                            </child>
+                            <child>
+                              <object class="GtkSpinButton" id="sbNumberBase">
+                                <property name="visible">True</property>
+                                <property name="can-focus">True</property>
+                                <property name="tooltip-text" translatable="yes">Base of the numerical system</property>
+                                <property name="adjustment">numberBaseAdj</property>
+                                <property name="numeric">True</property>
+                                <signal name="value-changed" handler="valueChangeSbNumber" swapped="no"/>
+                              </object>
+                              <packing>
+                                <property name="left-attach">3</property>
+                                <property name="top-attach">0</property>
+                              </packing>
+                            </child>
+                            <child>
+                              <object class="GtkLabel">
+                                <property name="visible">True</property>
+                                <property name="can-focus">False</property>
+                                <property name="halign">start</property>
+                                <property name="label" translatable="yes">Prefix</property>
+                              </object>
+                              <packing>
+                                <property name="left-attach">0</property>
+                                <property name="top-attach">3</property>
+                              </packing>
+                            </child>
+                            <child>
+                              <object class="GtkLabel">
+                                <property name="visible">True</property>
+                                <property name="can-focus">False</property>
+                                <property name="halign">start</property>
+                                <property name="label" translatable="yes">Suffix</property>
+                              </object>
+                              <packing>
+                                <property name="left-attach">2</property>
+                                <property name="top-attach">3</property>
+                              </packing>
+                            </child>
+                            <child>
+                              <object class="GtkEntry" id="etNumberPrefix">
+                                <property name="visible">True</property>
+                                <property name="can-focus">True</property>
+                                <property name="tooltip-text" translatable="yes">Prepend a string to the number</property>
+                                <property name="max-length">4095</property>
+                                <signal name="changed" handler="valueChangeEtNumber" swapped="no"/>
+                              </object>
+                              <packing>
+                                <property name="left-attach">1</property>
+                                <property name="top-attach">3</property>
+                              </packing>
+                            </child>
+                            <child>
+                              <object class="GtkEntry" id="etNumberSuffix">
+                                <property name="visible">True</property>
+                                <property name="can-focus">True</property>
+                                <property name="tooltip-text" translatable="yes">Append a string to the number</property>
+                                <property name="max-length">4095</property>
+                                <signal name="changed" handler="valueChangeEtNumber" swapped="no"/>
+                              </object>
+                              <packing>
+                                <property name="left-attach">3</property>
+                                <property name="top-attach">3</property>
+                              </packing>
+                            </child>
+                          </object>
+                          <packing>
+                            <property name="expand">False</property>
+                            <property name="fill">True</property>
+                            <property name="position">9</property>
+                          </packing>
+                        </child>
+                        <child>
+                          <object class="GtkLabel">
+                            <property name="visible">True</property>
+                            <property name="can-focus">False</property>
+                            <property name="halign">start</property>
+                            <property name="label" translatable="yes">Destination</property>
+                            <attributes>
+                              <attribute name="weight" value="bold"/>
+                            </attributes>
+                          </object>
+                          <packing>
+                            <property name="expand">False</property>
+                            <property name="fill">True</property>
+                            <property name="position">10</property>
+                          </packing>
+                        </child>
+                        <child>
+                          <!-- n-columns=5 n-rows=2 -->
+                          <object class="GtkGrid">
+                            <property name="visible">True</property>
+                            <property name="can-focus">False</property>
+                            <property name="row-spacing">4</property>
+                            <property name="column-spacing">8</property>
+                            <child>
+                              <object class="GtkComboBoxText" id="cmbDestinationMode">
+                                <property name="visible">True</property>
+                                <property name="can-focus">False</property>
+                                <property name="tooltip-text" translatable="yes">How to rename files</property>
+                                <property name="halign">start</property>
+                                <property name="active">0</property>
+                                <items>
+                                  <item translatable="yes">In Place</item>
+                                  <item translatable="yes">Move</item>
+                                  <item translatable="yes">Copy</item>
+                                  <item translatable="yes">Link</item>
+                                </items>
+                              </object>
+                              <packing>
+                                <property name="left-attach">0</property>
+                                <property name="top-attach">0</property>
+                              </packing>
+                            </child>
+                            <child>
+                              <object class="GtkEntry" id="etDestination">
+                                <property name="visible">True</property>
+                                <property name="can-focus">True</property>
+                                <property name="tooltip-text" translatable="yes">Destination directory for when not renaming in place</property>
+                                <property name="max-length">4095</property>
+                                <signal name="changed" handler="valueChangeEtDestination" swapped="no"/>
+                              </object>
+                              <packing>
+                                <property name="left-attach">1</property>
+                                <property name="top-attach">0</property>
+                                <property name="width">3</property>
+                              </packing>
+                            </child>
+                            <child>
+                              <object class="GtkButton" id="pbDestination">
+                                <property name="label" translatable="yes">...</property>
+                                <property name="visible">True</property>
+                                <property name="can-focus">True</property>
+                                <property name="receives-default">True</property>
+                                <property name="tooltip-text" translatable="yes">Destination directory for when not renaming in place</property>
+                                <property name="halign">start</property>
+                              </object>
+                              <packing>
+                                <property name="left-attach">4</property>
+                                <property name="top-attach">0</property>
+                              </packing>
+                            </child>
+                            <child>
+                              <object class="GtkCheckButton" id="cbDestinationForward">
+                                <property name="label" translatable="yes">Forward</property>
+                                <property name="visible">True</property>
+                                <property name="can-focus">True</property>
+                                <property name="receives-default">False</property>
+                                <property name="tooltip-text" translatable="yes">Rename files from top to bottom</property>
+                                <property name="halign">start</property>
+                                <property name="active">True</property>
+                                <property name="draw-indicator">True</property>
+                              </object>
+                              <packing>
+                                <property name="left-attach">3</property>
+                                <property name="top-attach">1</property>
+                              </packing>
+                            </child>
+                            <child>
+                              <object class="GtkButton" id="pbRename">
+                                <property name="label" translatable="yes">Rename</property>
+                                <property name="width-request">158</property>
+                                <property name="visible">True</property>
+                                <property name="can-focus">True</property>
+                                <property name="receives-default">True</property>
+                                <property name="tooltip-text" translatable="yes">Rename files</property>
+                                <signal name="clicked" handler="clickRename" swapped="no"/>
+                              </object>
+                              <packing>
+                                <property name="left-attach">2</property>
+                                <property name="top-attach">1</property>
+                              </packing>
+                            </child>
+                            <child>
+                              <object class="GtkButton" id="pbPreview">
+                                <property name="label" translatable="yes">Preview</property>
+                                <property name="visible">True</property>
+                                <property name="can-focus">True</property>
+                                <property name="receives-default">True</property>
+                                <property name="tooltip-text" translatable="yes">Update new name preview</property>
+                                <signal name="clicked" handler="clickPreview" swapped="no"/>
+                              </object>
+                              <packing>
+                                <property name="left-attach">1</property>
+                                <property name="top-attach">1</property>
+                              </packing>
+                            </child>
+                            <child>
+                              <placeholder/>
+                            </child>
+                            <child>
+                              <placeholder/>
+                            </child>
+                          </object>
+                          <packing>
+                            <property name="expand">False</property>
+                            <property name="fill">True</property>
+                            <property name="position">11</property>
+                          </packing>
+                        </child>
+                      </object>
+                    </child>
+                  </object>
+                </child>
+              </object>
+              <packing>
+                <property name="expand">False</property>
+                <property name="fill">True</property>
+                <property name="position">0</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkScrolledWindow">
+                <property name="visible">True</property>
+                <property name="can-focus">True</property>
+                <property name="shadow-type">in</property>
+                <property name="min-content-width">200</property>
+                <child>
+                  <object class="GtkTreeView" id="tblFiles">
+                    <property name="visible">True</property>
+                    <property name="can-focus">True</property>
+                    <property name="model">lsFiles</property>
+                    <property name="reorderable">True</property>
+                    <property name="fixed-height-mode">True</property>
+                    <property name="enable-grid-lines">both</property>
+                    <signal name="drag-data-received" handler="dropTblFiles" swapped="no"/>
+                    <signal name="key-press-event" handler="keyPressTblFiles" swapped="no"/>
+                    <child internal-child="selection">
+                      <object class="GtkTreeSelection"/>
+                    </child>
+                    <child>
+                      <object class="GtkTreeViewColumn">
+                        <property name="resizable">True</property>
+                        <property name="sizing">fixed</property>
+                        <property name="fixed-width">100</property>
+                        <property name="min-width">20</property>
+                        <property name="title" translatable="yes">Name</property>
+                        <property name="expand">True</property>
+                        <property name="clickable">True</property>
+                        <property name="reorderable">True</property>
+                        <property name="sort-indicator">True</property>
+                        <property name="sort-column-id">0</property>
+                        <child>
+                          <object class="GtkCellRendererText"/>
+                          <attributes>
+                            <attribute name="text">0</attribute>
+                          </attributes>
+                        </child>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkTreeViewColumn">
+                        <property name="resizable">True</property>
+                        <property name="sizing">fixed</property>
+                        <property name="fixed-width">100</property>
+                        <property name="min-width">20</property>
+                        <property name="title" translatable="yes">New Name</property>
+                        <property name="expand">True</property>
+                        <child>
+                          <object class="GtkCellRendererText"/>
+                          <attributes>
+                            <attribute name="text">1</attribute>
+                          </attributes>
+                        </child>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkTreeViewColumn">
+                        <property name="resizable">True</property>
+                        <property name="sizing">fixed</property>
+                        <property name="fixed-width">100</property>
+                        <property name="min-width">20</property>
+                        <property name="title" translatable="yes">Directory</property>
+                        <property name="expand">True</property>
+                        <property name="clickable">True</property>
+                        <property name="reorderable">True</property>
+                        <property name="sort-indicator">True</property>
+                        <property name="sort-column-id">2</property>
+                        <child>
+                          <object class="GtkCellRendererText"/>
+                          <attributes>
+                            <attribute name="text">2</attribute>
+                          </attributes>
+                        </child>
+                      </object>
+                    </child>
+                  </object>
+                </child>
+              </object>
+              <packing>
+                <property name="expand">True</property>
+                <property name="fill">True</property>
+                <property name="position">1</property>
+              </packing>
+            </child>
+          </object>
+          <packing>
+            <property name="expand">True</property>
+            <property name="fill">True</property>
+            <property name="position">1</property>
+          </packing>
+        </child>
+      </object>
+    </child>
+  </object>
+</interface>
