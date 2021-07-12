@@ -1,8 +1,12 @@
 #include "rename.h"
 #include "main.h"
 #include <fcntl.h>
-#include <sys/sendfile.h>
 #include <sys/stat.h>
+#ifdef __MINGW32__
+#include <shlwapi.h>
+#else
+#include <sys/sendfile.h>
+#endif
 
 static const char emptyStr[1] = "";
 
@@ -17,14 +21,29 @@ static int copyFile(const char* src, const char* dst) {
 		return -1;
 	}
 
+#ifdef __MINGW32__
+	int out = creat(dst, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH);
+#else
 	int out = creat(dst, ps.st_mode & (S_ISUID | S_ISGID | S_ISVTX | S_IRWXU | S_IRWXG | S_IRWXO));
+#endif
 	if (out == -1) {
 		close(in);
 		return -1;
 	}
-
+#ifdef __MINGW32__
+	int rc = -1;
+	long bytes = lseek(in, 0, SEEK_END);
+	if (bytes != -1 && lseek(in, 0, SEEK_SET) != -1) {
+		uint8* data = malloc(bytes);
+		read(in, data, bytes);
+		write(out, data, bytes);
+		free(data);
+		rc = 0;
+	}
+#else
 	off_t bytes = 0;
 	int rc = sendfile(out, in, &bytes, ps.st_size);
+#endif
 	close(in);
 	close(out);
 	return rc;
@@ -54,7 +73,11 @@ static size_t replaceRegex(char* name, regex_t* reg, const char* new, ushort nle
 }
 
 static size_t replaceStrings(char* name, const char* old, ushort olen, const char* new, ushort nlen, bool ci) {
+#ifdef __MINGW32__
+	char* (*scmp)(const char*, const char*) = ci ? StrStrIA : strstr;
+#else
 	char* (*scmp)(const char*, const char*) = ci ? strcasestr : strstr;
+#endif
 	char buf[FILENAME_MAX];
 	size_t blen = 0;
 	char* last = name;
@@ -285,8 +308,8 @@ static size_t processExtension(Process* prc, const char* str) {
 	return elen;
 }
 
-static bool processName(Process* prc, const char* oldn, size_t* olen) {
-	prc->nameLen = *olen = strlen(oldn);
+static bool processName(Process* prc, const char* oldn, size_t olen) {
+	prc->nameLen = olen;
 	if (prc->nameLen >= FILENAME_MAX) {
 		g_printerr("filename '%s' too long\n", oldn);
 		return false;
@@ -492,7 +515,7 @@ static char* initDestination(Process* prc, size_t* dlen) {
 	char* dirc = malloc(PATH_MAX * sizeof(char));
 	memcpy(dirc, prc->destination, (prc->destinationLen + 1) * sizeof(char));
 	if (extend)
-		memcpy(dirc + prc->destinationLen, "/", 2);
+		strcpy(dirc + prc->destinationLen, "/");
 	return dirc;
 }
 
@@ -515,7 +538,11 @@ static bool processFile(Process* prc, char* dirc, size_t dlen, const char* oldn,
 	memcpy(dirc + dlen, oldn, (olen + 1) * sizeof(char));
 	memmove(prc->name + dlen, prc->name, (prc->nameLen + 1) * sizeof(char));
 	memcpy(prc->name, dirc, dlen * sizeof(char));
+#ifdef __MINGW32__
+	int rc = (int (*const[4])(const char*, const char*)){ rename, rename, copyFile }[prc->destinationMode](dirc, prc->name);
+#else
 	int rc = (int (*const[4])(const char*, const char*)){ rename, rename, copyFile, symlink }[prc->destinationMode](dirc, prc->name);
+#endif
 	if (rc)
 		g_printerr("%s\n", strerror(errno));
 	return !rc;
@@ -533,24 +560,20 @@ void windowRename(Window* win) {
 
 	do {
 		char* oldn;
-		size_t olen;
 		gtk_tree_model_get(prc->model, &prc->it, FCOL_OLD_NAME, &oldn, FCOL_INVALID);
-		if (processName(prc, oldn, &olen)) {
-			bool inPlace = !dirc;
-			if (inPlace) {
-				gtk_tree_model_get(prc->model, &prc->it, FCOL_DIRECTORY, &dirc, FCOL_INVALID);
-				dlen = strlen(dirc);
-				if (dirc[dlen - 1] != '/') {
-					dirc = g_realloc(dirc, (dlen + 2) * sizeof(char));
-					memcpy(dirc + dlen++, "/", 2);
-				}
+		size_t olen = strlen(oldn);
+		if (processName(prc, oldn, olen)) {
+			if (prc->destinationMode == DESTINATION_IN_PLACE) {
+				char* tmp;
+				gtk_tree_model_get(prc->model, &prc->it, FCOL_DIRECTORY, &tmp, FCOL_INVALID);
+				dlen = strlen(tmp);
+				memcpy(dirc, tmp, (dlen + 1) * sizeof(char));
+				if (dirc[dlen - 1] != '/')
+					strcpy(dirc + dlen++, "/");
+				g_free(tmp);
 			}
 			if (processFile(prc, dirc, dlen, oldn, olen))
 				gtk_list_store_set(win->lsFiles, &prc->it, FCOL_OLD_NAME, prc->name + dlen, FCOL_NEW_NAME, prc->name + dlen, FCOL_INVALID);
-			if (inPlace) {
-				g_free(dirc);
-				dirc = NULL;
-			}
 		}
 		g_free(oldn);
 		prc->id += prc->step;
@@ -569,7 +592,6 @@ void consoleRename(Window* win) {
 	char* dirc = initDestination(prc, &dlen);
 	if (!dirc)
 		return;
-	char* oldn = malloc(PATH_MAX * sizeof(char));
 
 	for (; prc->forward ? prc->id < arg->nFiles : prc->id >= 0; prc->id += prc->step) {
 		const char* path = g_file_peek_path(arg->files[prc->id]);
@@ -589,12 +611,11 @@ void consoleRename(Window* win) {
 			sl = path - 1;
 		}
 		size_t olen = path + plen - sl - 1;
-		memcpy(oldn, sl + 1, olen * sizeof(char));
+		const char* oldn = sl + 1;
 
-		if (processName(prc, oldn, &olen) && !processFile(prc, dirc, dlen, oldn, olen) && !arg->noAutoPreview)
+		if (processName(prc, oldn, olen) && !processFile(prc, dirc, dlen, oldn, olen) && !arg->noAutoPreview)
 			g_print("'%s' -> '%s'\n", oldn, prc->name);
 	}
-	free(oldn);
 	free(dirc);
 	closeRename(prc);
 }
@@ -606,9 +627,8 @@ void windowPreview(Window* win) {
 
 	do {
 		char* oldn;
-		size_t olen;
 		gtk_tree_model_get(prc->model, &prc->it, FCOL_OLD_NAME, &oldn, FCOL_INVALID);
-		if (processName(prc, oldn, &olen))
+		if (processName(prc, oldn, strlen(oldn)))
 			gtk_list_store_set(win->lsFiles, &prc->it, FCOL_NEW_NAME, prc->name, FCOL_INVALID);
 		g_free(oldn);
 		prc->id += prc->step;
@@ -631,7 +651,7 @@ void consolePreview(Window* win) {
 		else
 			oldn = path;
 
-		if (processName(prc, oldn, &olen))
+		if (processName(prc, oldn, olen))
 			g_print("'%s' -> '%s'\n", oldn, prc->name);
 	}
 	closeRename(prc);

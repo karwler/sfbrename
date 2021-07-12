@@ -1,0 +1,28 @@
+#include <windows.h>
+
+MAINICON ICON "sfbrename.ico"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION 1,0,0,0
+PRODUCTVERSION 1,0,0,0
+FILETYPE 0x1L
+
+BEGIN
+	BLOCK "StringFileInfo"
+	BEGIN
+		BLOCK "040904e4"
+		BEGIN
+			VALUE "FileDescription", "sfbrename"
+			VALUE "FileVersion", "1.0.0"
+			VALUE "InternalName", "sfbrename"
+			VALUE "OriginalFilename", "sfbrename.exe"
+			VALUE "ProductName", "sfbrename"
+			VALUE "ProductVersion", "1.0.0"
+		END
+	END
+
+	BLOCK "VarFileInfo"
+	BEGIN
+		VALUE "Translation", 0x409, 1252
+	END
+END

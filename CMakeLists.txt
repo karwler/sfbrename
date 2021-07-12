@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10.3)
+cmake_minimum_required(VERSION 3.12.4)
 project(sfbrename LANGUAGES C)
 if(CMAKE_CONFIGURATION_TYPES)
 	set(CMAKE_CONFIGURATION_TYPES "Debug" "Release")
@@ -26,11 +26,16 @@ if(APPIMAGE)
 endif()
 
 if(CMAKE_C_COMPILER_ID STREQUAL "GNU" OR CMAKE_C_COMPILER_ID STREQUAL "Clang")
-	set(FLG_ANY "-rdynamic -Wall -Wextra -pedantic-errors -Wdouble-promotion -Wshadow -Wunreachable-code -Wno-unused-parameter")
+	set(FLG_ANY "-Wall -Wextra -pedantic-errors -Wdouble-promotion -Wshadow -Wunreachable-code -Wno-unused-parameter")
 	if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
 		set(FLG_ANY "${FLG_ANY} -Wcast-align=strict -Wduplicated-cond")
 	else()
 		set(FLG_ANY "${FLG_ANY} -Wcast-align -Wnull-dereference -Wover-aligned -Wshadow-all")
+	endif()
+	if(MINGW)
+		set(FLG_ANY "${FLG_ANY} -Wl,-subsystem,windows")
+	else()
+		set(FLG_ANY "${FLG_ANY} -rdynamic")
 	endif()
 
 	if(NATIVE)
@@ -61,9 +66,13 @@ set(SRC_FILES
 	"src/main.h"
 	"src/rename.c"
 	"src/rename.h")
-
-add_executable(sfbrename ${SRC_FILES})
+add_executable(${PROJECT_NAME} WIN32 ${SRC_FILES})
 target_link_libraries(${PROJECT_NAME} ${GTK3_LIBRARIES})
+if(MINGW)
+	set(RESOURCE_OBJ "${CMAKE_BINARY_DIR}/sfbrename.res")
+	execute_process(COMMAND windres "${CMAKE_SOURCE_DIR}/rsc/sfbrename.rc" -O coff -o "${RESOURCE_OBJ}")
+	target_link_libraries(${PROJECT_NAME} gnurx "${RESOURCE_OBJ}")
+endif()
 
 set(PBOUT_DIR "${CMAKE_BINARY_DIR}/${PROJECT_NAME}")
 set(EXECUTABLE_OUTPUT_PATH "${PBOUT_DIR}/bin")
@@ -75,8 +84,46 @@ set_target_properties(${PROJECT_NAME} PROPERTIES
 set(DATA_DIR "${PBOUT_DIR}/share/${PROJECT_NAME}")
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
 	                COMMAND "${CMAKE_COMMAND}" -E make_directory "${DATA_DIR}"
-					COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${CMAKE_SOURCE_DIR}/rsc/main.glade" "${DATA_DIR}"
-					COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${CMAKE_SOURCE_DIR}/rsc/${PROJECT_NAME}.desktop" "${PBOUT_DIR}")
+					COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${CMAKE_SOURCE_DIR}/rsc/main.glade" "${DATA_DIR}")
+if(MINGW)
+	execute_process(COMMAND where gdbus OUTPUT_VARIABLE GDBUS_LOC)
+	string(REGEX REPLACE "\r?\n" ";" GDBUS_LOC "${GDBUS_LOC}")
+	list(GET GDBUS_LOC 0 GDBUS)
+
+	string(REGEX REPLACE "[\\/]" ";" MINGW_LOC "${GDBUS}")
+	list(LENGTH MINGW_LOC MINGW_LEN)
+	math(EXPR MINGW_LEN "${MINGW_LEN} - 2")
+	list(SUBLIST MINGW_LOC 0 ${MINGW_LEN} MINGW_LOC)
+	string(REPLACE ";" "/" MINGW_LOC "${MINGW_LOC}")
+	set(THEME_LOC "${MINGW_LOC}/share/icons")
+	set(THEME_DIR "${PBOUT_DIR}/share/icons")
+
+	file(GLOB PIXBUF_LOC "${MINGW_LOC}/lib/gdk-pixbuf-2.0/*")
+	list(GET PIXBUF_LOC 0 PIXBUF_LOC)
+	string(REGEX REPLACE "[\\/]" ";" PIXBUF_DIR "${PIXBUF_LOC}")
+	list(LENGTH PIXBUF_DIR PIXBUF_LEN)
+	math(EXPR PIXBUF_POS "${PIXBUF_LEN} - 3")
+	list(SUBLIST PIXBUF_DIR ${PIXBUF_POS} 3 PIXBUF_DIR)
+	string(REPLACE ";" "/" PIXBUF_DIR "${PIXBUF_DIR}")
+	set(PIXBUF_DIR "${PBOUT_DIR}/${PIXBUF_DIR}")
+
+	string(SUBSTRING "${GDBUS}" 0 1 MINGW_DRIVE)
+	string(REGEX REPLACE "^${MINGW_DRIVE}:" "/${MINGW_DRIVE}" GDBUS "${GDBUS}")	# the copy command absolutely shits itself if this path isn't in msys format
+	string(REPLACE "\\" "/" GDBUS "${GDBUS}")
+
+	add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+						COMMAND ldd "${EXECUTABLE_OUTPUT_PATH}/${PROJECT_NAME}.exe" | grep "'\\/mingw.*\\.dll'" -o | xargs -I{} cp \"{}\" "${EXECUTABLE_OUTPUT_PATH}"
+						COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${GDBUS}" "${EXECUTABLE_OUTPUT_PATH}"
+						COMMAND "${CMAKE_COMMAND}" -E copy_directory "${THEME_LOC}/Adwaita/16x16" "${THEME_DIR}/Adwaita/16x16"
+						COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${THEME_LOC}/Adwaita/icon-theme.cache" "${THEME_LOC}/Adwaita/index.theme" "${THEME_DIR}/Adwaita"
+						COMMAND "${CMAKE_COMMAND}" -E copy_directory "${THEME_LOC}/hicolor/16x16" "${THEME_DIR}/hicolor/16x16"
+						COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${THEME_LOC}/hicolor/icon-theme.cache" "${THEME_LOC}/hicolor/index.theme" "${THEME_DIR}/hicolor"
+						COMMAND "${CMAKE_COMMAND}" -E copy_directory "${PIXBUF_LOC}" "${PIXBUF_DIR}")
+else()
+	add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+						COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${CMAKE_SOURCE_DIR}/rsc/${PROJECT_NAME}.desktop" "${PBOUT_DIR}")
+endif()
+
 find_program(SED "sed")
 if(SED)
 	add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
@@ -90,9 +137,10 @@ if((CMAKE_CXX_COMPILER_ID MATCHES "Clang") AND (NOT CMAKE_BUILD_TYPE STREQUAL "D
 	find_program(STRIPPER "strip")
 	if(STRIPPER)
 		add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-			                COMMAND "${STRIPPER}" -s "${EXECUTABLE_OUTPUT_PATH}/${PROJECT_NAME_LOWER}")
+			                COMMAND "${STRIPPER}" -s "${EXECUTABLE_OUTPUT_PATH}/${PROJECT_NAME}")
 	endif()
 endif()
+
 if(APPIMAGE)
 	add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
 		                COMMAND "${CMAKE_COMMAND}" -E create_symlink "bin/${PROJECT_NAME}" "${PBOUT_DIR}/AppRun"

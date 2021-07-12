@@ -4,8 +4,14 @@
 #define _GNU_SOURCE
 #include <gtk/gtk.h>
 #include <stdbool.h>
+#include <stdlib.h>
+#include <strings.h>
 #include <regex.h>
 
+typedef wchar_t wchar;
+typedef unsigned short ushort;
+typedef unsigned uint;
+typedef unsigned long ulong;
 typedef long long llong;
 typedef unsigned long long ullong;
 typedef uint8_t uint8;
@@ -189,6 +195,10 @@ typedef struct Window {
 #define nmax(a, b) ((a) > (b) ? (a) : (b))
 #define nclamp(v, lo, hi) ((v) < (lo) ? (v) : (v) > (hi) ? (hi) : (v))
 
+#ifdef __MINGW32__
+void* memrchr(const void* s, int c, size_t n);
+void unbackslashify(char* path);
+#endif
 void addFile(Window* win, const char* file);
 int showMessageBox(Window* win, GtkMessageType type, GtkButtonsType buttons, const char* format, ...);
 

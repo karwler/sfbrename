@@ -3,6 +3,9 @@
 #include "main.h"
 #include <sys/stat.h>
 #include <zlib.h>
+#ifdef __MINGW32__
+#include <windows.h>
+#endif
 
 #define MAIN_GLADE_PATH "share/sfbrename/main.glade.gz"
 #ifdef APPIMAGE
@@ -13,8 +16,56 @@
 #define DEFAULT_PRINT_BUFFER_SIZE 1024
 #define INFLATED_SIZE 40000
 #define INFLATE_INCREMENT 10000
+#define FILE_URI_PREFIX "file://"
+#ifdef __MINGW32__
+#define EXECUTABLE_NAME "sfbrename.exe"
+#endif
 
 static void autoPreview(Window* win);
+
+#ifdef __MINGW32__
+void* memrchr(const void* s, int c, size_t n) {
+	uint8* p = (uint8*)s;
+	if (n)
+		do {
+			if (p[--n] == c)
+				return p + n;
+		} while (n);
+	return NULL;
+}
+
+void unbackslashify(char* path) {
+	for (; *path; ++path)
+		if (*path == '\\')
+			*path = '/';
+}
+
+static char* wtos(const wchar* src) {
+	char* dst;
+	int len = WideCharToMultiByte(CP_UTF8, 0, src, -1, NULL, 0, NULL, NULL);
+	if (len > 1) {
+		dst = malloc(len * sizeof(char));
+		WideCharToMultiByte(CP_UTF8, 0, src, -1, dst, len, NULL, NULL);
+	} else {
+		dst = malloc(sizeof(char));
+		dst[0] = '\0';
+	}
+	return dst;
+}
+
+wchar* stow(const char* src) {
+	wchar* dst;
+	int len = MultiByteToWideChar(CP_UTF8, 0, src, -1, NULL, 0);
+	if (len > 1) {
+		dst = malloc(len * sizeof(wchar));
+		MultiByteToWideChar(CP_UTF8, 0, src, -1, dst, len);
+	} else {
+		dst = malloc(sizeof(wchar));
+		dst[0] = '\0';
+	}
+	return dst;
+}
+#endif
 
 static uint8* readGzip(const char* path, size_t* olen) {
 	gzFile file = gzopen(path, "rb");
@@ -41,11 +92,19 @@ void addFile(Window* win, const char* file) {
 		return;
 	}
 	char path[PATH_MAX];
+#ifdef __MINGW32__
+	strcpy(path, file + (file[0] == '/' && isalnum(file[1]) && file[2] == ':' && file[3] == '/'));
+#else
 	if (!realpath(file, path))
 		strcpy(path, file);
+#endif
 
 	struct stat ps;
+#ifdef __MINGW32__
+	if (stat(path, &ps) || S_ISDIR(ps.st_mode)) {
+#else
 	if (lstat(path, &ps) || S_ISDIR(ps.st_mode) || S_ISLNK(ps.st_mode)) {
+#endif
 		g_printerr("file '%s' is invalid\n", path);
 		return;
 	}
@@ -138,9 +197,10 @@ G_MODULE_EXPORT void activateAutoPreview(GtkMenuItem* menuitem, Window* win) {
 G_MODULE_EXPORT void dropTblFiles(GtkWidget* widget, GdkDragContext* context, int x, int y, GtkSelectionData* data, uint info, uint time, Window* win) {
 	char** uris = gtk_selection_data_get_uris(data);
 	if (uris) {
+		size_t flen = strlen(FILE_URI_PREFIX);
 		for (int i = 0; uris[i]; ++i)
-			if (!strncmp(uris[i], "file://", 7))
-				addFile(win, uris[i] + 7);
+			if (!strncmp(uris[i], FILE_URI_PREFIX, flen))
+				addFile(win, uris[i] + flen);
 		g_strfreev(uris);
 		autoPreview(win);
 	}
@@ -261,11 +321,13 @@ G_MODULE_EXPORT void valueChangeEtDestination(GtkEditable* editable, Window* win
 
 G_MODULE_EXPORT void clickOpenDestination(GtkButton* button, Window* win) {
 	GtkFileChooserDialog* dialog = GTK_FILE_CHOOSER_DIALOG(gtk_file_chooser_dialog_new("Pick Destination", win->window, GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER, "Cancel", GTK_RESPONSE_CANCEL, "Open", GTK_RESPONSE_ACCEPT, NULL));
-
 	const char* dst = gtk_entry_get_text(win->etDestination);
 	struct stat ps;
-	gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(dialog), !lstat(dst, &ps) && S_ISDIR(ps.st_mode) ? dst : getenv("HOME"));
-
+#ifdef __MINGW32__
+	gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(dialog), !stat(dst, &ps) && S_ISDIR(ps.st_mode) ? dst : g_get_home_dir());
+#else
+	gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(dialog), !lstat(dst, &ps) && S_ISDIR(ps.st_mode) ? dst : g_get_home_dir());
+#endif
 	if (gtk_dialog_run(GTK_DIALOG(dialog)) == GTK_RESPONSE_ACCEPT) {
 		char* dirc = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(dialog));
 		if (dirc) {
@@ -281,6 +343,7 @@ G_MODULE_EXPORT void clickOpenDestination(GtkButton* button, Window* win) {
 
 G_MODULE_EXPORT void clickRename(GtkButton* button, Window* win) {
 	windowRename(win);
+	autoPreview(win);
 }
 
 G_MODULE_EXPORT void clickPreview(GtkButton* button, Window* win) {
@@ -314,14 +377,34 @@ static void initWindow(GtkApplication* app, Window* win) {
 	}
 
 	char path[PATH_MAX];
+#ifdef __MINGW32__
+	wchar* wpath = malloc(PATH_MAX * sizeof(wchar));
+	size_t plen = GetModuleFileNameW(NULL, wpath, PATH_MAX) + 1;
+	if (plen > 1 && plen <= PATH_MAX)
+		plen = WideCharToMultiByte(CP_UTF8, 0, wpath, plen, path, PATH_MAX, NULL, NULL);
+	free(wpath);
+#else
 	size_t plen = readlink("/proc/self/exe", path, PATH_MAX);
-	if (plen < PATH_MAX) {
+#endif
+	if (plen > 1 && plen <= PATH_MAX) {
+#ifdef __MINGW32__
+		unbackslashify(path);
+#endif
 		char* pos = memrchr(path, '/', --plen);
 		if (pos)
 			pos = memrchr(path, '/', pos - path - (pos != path));
-		plen = pos && pos - path + strlen(MAIN_GLADE_PATH) + 2 < PATH_MAX ? pos - path + 1 : 0;
-	} else
-		plen = 0;
+
+		plen = pos - path;
+		if (pos && plen + strlen(MAIN_GLADE_PATH) + 2 < PATH_MAX)
+			++plen;
+		else {
+			strcpy(path, "../");
+			plen = strlen(path);
+		}
+	} else {
+		strcpy(path, "../");
+		plen = strlen(path);
+	}
 	strcpy(path + plen, MAIN_GLADE_PATH);
 
 	size_t glen;
@@ -454,6 +537,9 @@ static void initWindow(GtkApplication* app, Window* win) {
 		gtk_entry_set_text(win->etNumberSuffix, args->numberSuffix);
 		g_free(args->numberSuffix);
 	}
+#ifdef __MINGW32__
+	gtk_combo_box_text_remove(win->cmbDestinationMode, DESTINATION_LINK);
+#endif
 	if (args->destinationMode) {
 		gtk_combo_box_set_active(GTK_COMBO_BOX(win->cmbDestinationMode), args->gotDestinationMode);
 		g_free(args->destinationMode);
@@ -467,7 +553,7 @@ static void initWindow(GtkApplication* app, Window* win) {
 	free(win->args);
 	win->args = NULL;
 
-	if (plen + strlen(WINDOW_ICON_PATH) + 1 < PATH_MAX) {
+	if (plen + strlen(WINDOW_ICON_PATH) < PATH_MAX) {
 		strcpy(path + plen, WINDOW_ICON_PATH);
 		gtk_window_set_icon_from_file(win->window, path, NULL);
 	}
@@ -487,7 +573,24 @@ static void initWindowOpen(GApplication* app, GFile** files, int nFiles, const c
 		runConsole(win);
 }
 
+#ifdef __MINGW32__
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
+	int argc = 0;
+	char** argv = NULL;
+	wchar* wcmdLine = stow(lpCmdLine);
+	wchar** wargv = CommandLineToArgvW(wcmdLine, &argc);
+	if (wargv) {
+		argv = malloc(++argc * sizeof(char*));
+		argv[0] = malloc((strlen(EXECUTABLE_NAME) + 1) * sizeof(char));
+		strcpy(argv[0], EXECUTABLE_NAME);
+		for (int i = 1; i < argc; ++i)
+			argv[i] = wtos(wargv[i - 1]);
+		LocalFree(wargv);
+	}
+	free(wcmdLine);
+#else
 int main(int argc, char** argv) {
+#endif
 	Window win = {
 		.app = gtk_application_new(NULL, G_APPLICATION_HANDLES_OPEN),
 		.args = malloc(sizeof(Arguments))
@@ -497,5 +600,10 @@ int main(int argc, char** argv) {
 	initCommandLineArguments(win.app, win.args, argc, argv);
 	int rc = g_application_run(G_APPLICATION(win.app), argc, argv);
 	g_object_unref(win.app);
+#ifdef __MINGW32__
+	for (int i = 0; i < argc; ++i)
+		free(argv[i]);
+	free(argv);
+#endif
 	return rc;
 }

@@ -1074,7 +1074,7 @@ Use a negative index to set one relative the the back</property>
                             <child>
                               <object class="GtkButton" id="pbRename">
                                 <property name="label" translatable="yes">Rename</property>
-                                <property name="width-request">158</property>
+                                <property name="width-request">130</property>
                                 <property name="visible">True</property>
                                 <property name="can-focus">True</property>
                                 <property name="receives-default">True</property>

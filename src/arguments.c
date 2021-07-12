@@ -47,8 +47,10 @@ static DestinationMode parseDestinationMode(const gchar* mode) {
 		return DESTINATION_MOVE;
 	if (id == DESTINATION_COPY || !strcasecmp(mode, "c") || !strcasecmp(mode, "copy"))
 		return DESTINATION_COPY;
+#ifndef __MINGW32__
 	if (id == DESTINATION_LINK || !strcasecmp(mode, "l") || !strcasecmp(mode, "link"))
 		return DESTINATION_LINK;
+#endif
 	return DESTINATION_IN_PLACE;
 }
 
@@ -62,21 +64,27 @@ void processArguments(Window* win) {
 	} else
 		g_printerr("current working directory path is too long\n");
 
+#ifdef __MINGW32__
+	char buf[PATH_MAX];
+#endif
 	Arguments* args = win->args;
 	if (!args->noGui && args->files) {
 		for (int i = 0; i < args->nFiles; ++i) {
 			const char* file = g_file_peek_path(args->files[i]);
 			if (file) {
-				if (file[0] == '/')
-					addFile(win, file);
-				else {
-					size_t len = strlen(file);
-					if (plen + len < PATH_MAX) {
-						memcpy(path + plen, file, (len + 1) * sizeof(char));
-						addFile(win, path);
-					} else
-						g_printerr("path for '%s' is too long\n", file);
+#ifdef __MINGW32__
+				size_t fsiz = strlen(file) + 1;
+				if (fsiz >= PATH_MAX) {
+					g_printerr("'%s' is too long\n", file);
+					continue;
 				}
+				memcpy(buf, file, fsiz * sizeof(char));
+				unbackslashify(buf);
+				if ((isalnum(buf[0]) && buf[1] == ':' && buf[2] == '/') || !strncmp(buf, "//", 2))
+					addFile(win, buf);
+#else
+				addFile(win, file);
+#endif
 			}
 		}
 		args->files = NULL;
