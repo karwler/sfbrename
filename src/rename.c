@@ -384,7 +384,7 @@ static bool initWindowRename(Window* win) {
 	Process* prc = &win->proc;
 	prc->model = gtk_tree_view_get_model(win->tblFiles);
 	prc->extensionName = gtk_entry_get_text(win->etExtension);
-	prc->extensionNameLen = strlen(prc->extension);
+	prc->extensionNameLen = strlen(prc->extensionName);
 	prc->extensionReplace = gtk_entry_get_text(win->etExtensionReplace);
 	prc->extensionReplaceLen = strlen(prc->extensionReplace);
 	prc->rename = gtk_entry_get_text(win->etRename);

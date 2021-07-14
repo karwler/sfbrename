@@ -39,32 +39,6 @@ void unbackslashify(char* path) {
 		if (*path == '\\')
 			*path = '/';
 }
-
-static char* wtos(const wchar* src) {
-	char* dst;
-	int len = WideCharToMultiByte(CP_UTF8, 0, src, -1, NULL, 0, NULL, NULL);
-	if (len > 1) {
-		dst = malloc(len * sizeof(char));
-		WideCharToMultiByte(CP_UTF8, 0, src, -1, dst, len, NULL, NULL);
-	} else {
-		dst = malloc(sizeof(char));
-		dst[0] = '\0';
-	}
-	return dst;
-}
-
-wchar* stow(const char* src) {
-	wchar* dst;
-	int len = MultiByteToWideChar(CP_UTF8, 0, src, -1, NULL, 0);
-	if (len > 1) {
-		dst = malloc(len * sizeof(wchar));
-		MultiByteToWideChar(CP_UTF8, 0, src, -1, dst, len);
-	} else {
-		dst = malloc(sizeof(wchar));
-		dst[0] = '\0';
-	}
-	return dst;
-}
 #endif
 
 static uint8* readGzip(const char* path, size_t* olen) {
@@ -93,7 +67,7 @@ void addFile(Window* win, const char* file) {
 	}
 	char path[PATH_MAX];
 #ifdef __MINGW32__
-	strcpy(path, file + (file[0] == '/' && isalnum(file[1]) && file[2] == ':' && file[3] == '/'));
+	strcpy(path, file);
 #else
 	if (!realpath(file, path))
 		strcpy(path, file);
@@ -167,31 +141,62 @@ int showMessageBox(Window* win, GtkMessageType type, GtkButtonsType buttons, con
 	return rc;
 }
 
-G_MODULE_EXPORT void activateOpen(GtkMenuItem* menuitem, Window* win) {
+G_MODULE_EXPORT void clickOpen(GtkButton* button, Window* win) {
 	GtkFileChooserDialog* dialog = GTK_FILE_CHOOSER_DIALOG(gtk_file_chooser_dialog_new("Open File", win->window, GTK_FILE_CHOOSER_ACTION_OPEN, "Cancel", GTK_RESPONSE_CANCEL, "Open", GTK_RESPONSE_ACCEPT, NULL));
 	gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(dialog), g_get_home_dir());
 	gtk_file_chooser_set_select_multiple(GTK_FILE_CHOOSER(dialog), true);
 
+#ifdef __MINGW32__
+	char path[PATH_MAX];
+#endif
 	if (gtk_dialog_run(GTK_DIALOG(dialog)) == GTK_RESPONSE_ACCEPT) {
 		GSList* files = gtk_file_chooser_get_filenames(GTK_FILE_CHOOSER(dialog));
-		for (GSList* it = files; it; it = it->next)
+		for (GSList* it = files; it; it = it->next) {
+#ifdef __MINGW32__
+			size_t plen = strlen(it->data);
+			if (plen < PATH_MAX) {
+				memcpy(path, it->data, (plen + 1) * sizeof(char));
+				unbackslashify(path);
+				addFile(win, path);
+			} else
+				g_printerr("'%s' is too long\n", (char*)files->data);
+#else
 			addFile(win, it->data);
+#endif
+		}
 		g_slist_free(files);
+		autoPreview(win);
 	}
 	gtk_widget_destroy(GTK_WIDGET(dialog));
-	autoPreview(win);
 }
 
-G_MODULE_EXPORT void activateQuit(GtkMenuItem* menuitem, Window* win) {
-	g_application_quit(G_APPLICATION(win->app));
-}
-
-G_MODULE_EXPORT void activateClear(GtkMenuItem* menuitem, Window* win) {
+static void activateClear(GtkMenuItem* menuitem, Window* win) {
 	gtk_list_store_clear(win->lsFiles);
 }
 
-G_MODULE_EXPORT void activateAutoPreview(GtkMenuItem* menuitem, Window* win) {
+static void toggleAutoPreview(GtkCheckMenuItem* checkmenuitem, Window* win) {
+	win->autoPreview = gtk_check_menu_item_get_active(checkmenuitem);
 	autoPreview(win);
+}
+
+G_MODULE_EXPORT void clickOptions(GtkButton* button, Window* win) {
+	GtkCheckMenuItem* miPreview = GTK_CHECK_MENU_ITEM(gtk_check_menu_item_new_with_label("Auto Preview"));
+	gtk_check_menu_item_set_active(miPreview, win->autoPreview);
+	g_signal_connect(miPreview, "toggled", G_CALLBACK(toggleAutoPreview), win);
+	gtk_widget_show(GTK_WIDGET(miPreview));
+
+	GtkSeparatorMenuItem* miSeparator = GTK_SEPARATOR_MENU_ITEM(gtk_separator_menu_item_new());
+	gtk_widget_show(GTK_WIDGET(miSeparator));
+
+	GtkMenuItem* miClear = GTK_MENU_ITEM(gtk_menu_item_new_with_label("Clear"));
+	g_signal_connect(miClear, "activate", G_CALLBACK(activateClear), win);
+	gtk_widget_show(GTK_WIDGET(miClear));
+
+	GtkMenu* menu = GTK_MENU(gtk_menu_new());
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), GTK_WIDGET(miPreview));
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), GTK_WIDGET(miSeparator));
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), GTK_WIDGET(miClear));
+	gtk_menu_popup_at_widget(menu, GTK_WIDGET(button), GDK_GRAVITY_SOUTH_WEST, GDK_GRAVITY_NORTH_WEST, NULL);
 }
 
 G_MODULE_EXPORT void dropTblFiles(GtkWidget* widget, GdkDragContext* context, int x, int y, GtkSelectionData* data, uint info, uint time, Window* win) {
@@ -199,8 +204,14 @@ G_MODULE_EXPORT void dropTblFiles(GtkWidget* widget, GdkDragContext* context, in
 	if (uris) {
 		size_t flen = strlen(FILE_URI_PREFIX);
 		for (int i = 0; uris[i]; ++i)
-			if (!strncmp(uris[i], FILE_URI_PREFIX, flen))
+			if (!strncmp(uris[i], FILE_URI_PREFIX, flen)) {
+#ifdef __MINGW32__
+				const char* file = uris[i] + flen;
+				addFile(win, file + (file[0] == '/' && isalnum(file[1]) && file[2] == ':' && file[3] == '/'));
+#else
 				addFile(win, uris[i] + flen);
+#endif
+			}
 		g_strfreev(uris);
 		autoPreview(win);
 	}
@@ -351,7 +362,7 @@ G_MODULE_EXPORT void clickPreview(GtkButton* button, Window* win) {
 }
 
 static void autoPreview(Window* win) {
-	if (gtk_check_menu_item_get_active(win->mbAutoPreview))
+	if (win->autoPreview)
 		clickPreview(NULL, win);
 }
 
@@ -369,7 +380,7 @@ static void initWindow(GtkApplication* app, Window* win) {
 		return;
 	}
 
-	const char* err = gtk_check_version(3, 4, 0);
+	const char* err = gtk_check_version(3, 10, 0);
 	if (err) {
 		g_printerr("%s\n", err);
 		g_application_quit(G_APPLICATION(app));
@@ -424,7 +435,6 @@ static void initWindow(GtkApplication* app, Window* win) {
 	}
 	free(glade);
 	win->window = GTK_WINDOW(gtk_builder_get_object(builder, "window"));
-	win->mbAutoPreview = GTK_CHECK_MENU_ITEM(gtk_builder_get_object(builder, "mbAutoPreview"));
 	win->tblFiles = GTK_TREE_VIEW(gtk_builder_get_object(builder, "tblFiles"));
 	win->lsFiles = GTK_LIST_STORE(gtk_builder_get_object(builder, "lsFiles"));
 	win->cmbExtensionMode = GTK_COMBO_BOX_TEXT(gtk_builder_get_object(builder, "cmbExtensionMode"));
@@ -458,7 +468,6 @@ static void initWindow(GtkApplication* app, Window* win) {
 	win->cmbDestinationMode = GTK_COMBO_BOX_TEXT(gtk_builder_get_object(builder, "cmbDestinationMode"));
 	win->etDestination = GTK_ENTRY(gtk_builder_get_object(builder, "etDestination"));
 	win->cbDestinationForward = GTK_CHECK_BUTTON(gtk_builder_get_object(builder, "cbDestinationForward"));
-	GtkCheckMenuItem* mbAutoPreview = GTK_CHECK_MENU_ITEM(gtk_builder_get_object(builder, "mbAutoPreview"));
 
 	GtkLabel* numberLabel = GTK_LABEL(gtk_bin_get_child(GTK_BIN(win->cbNumber)));
 	PangoAttrList* attrs = gtk_label_get_attributes(numberLabel);
@@ -549,8 +558,8 @@ static void initWindow(GtkApplication* app, Window* win) {
 		g_free(args->destination);
 	}
 	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(win->cbDestinationForward), !args->backwards);
-	gtk_check_menu_item_set_active(mbAutoPreview, !args->noAutoPreview);
-	free(win->args);
+	win->autoPreview = !args->noAutoPreview;
+	free(args);
 	win->args = NULL;
 
 	if (plen + strlen(WINDOW_ICON_PATH) < PATH_MAX) {
@@ -573,24 +582,7 @@ static void initWindowOpen(GApplication* app, GFile** files, int nFiles, const c
 		runConsole(win);
 }
 
-#ifdef __MINGW32__
-int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
-	int argc = 0;
-	char** argv = NULL;
-	wchar* wcmdLine = stow(lpCmdLine);
-	wchar** wargv = CommandLineToArgvW(wcmdLine, &argc);
-	if (wargv) {
-		argv = malloc(++argc * sizeof(char*));
-		argv[0] = malloc((strlen(EXECUTABLE_NAME) + 1) * sizeof(char));
-		strcpy(argv[0], EXECUTABLE_NAME);
-		for (int i = 1; i < argc; ++i)
-			argv[i] = wtos(wargv[i - 1]);
-		LocalFree(wargv);
-	}
-	free(wcmdLine);
-#else
 int main(int argc, char** argv) {
-#endif
 	Window win = {
 		.app = gtk_application_new(NULL, G_APPLICATION_HANDLES_OPEN),
 		.args = malloc(sizeof(Arguments))
@@ -600,10 +592,5 @@ int main(int argc, char** argv) {
 	initCommandLineArguments(win.app, win.args, argc, argv);
 	int rc = g_application_run(G_APPLICATION(win.app), argc, argv);
 	g_object_unref(win.app);
-#ifdef __MINGW32__
-	for (int i = 0; i < argc; ++i)
-		free(argv[i]);
-	free(argv);
-#endif
 	return rc;
 }

@@ -145,9 +145,6 @@ typedef struct Window {
 	Arguments* args;
 
 	GtkWindow* window;
-
-	GtkCheckMenuItem* mbAutoPreview;
-
 	GtkTreeView* tblFiles;
 	GtkListStore* lsFiles;
 
@@ -187,6 +184,8 @@ typedef struct Window {
 	GtkComboBoxText* cmbDestinationMode;
 	GtkEntry* etDestination;
 	GtkCheckButton* cbDestinationForward;
+
+	bool autoPreview;
 } Window;
 
 #define MAX_DIGITS 10
