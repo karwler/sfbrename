@@ -1050,6 +1050,7 @@ Use a negative index to set one relative the the back</property>
                 <property name="reorderable">True</property>
                 <property name="fixed-height-mode">True</property>
                 <property name="enable-grid-lines">both</property>
+                <signal name="button-press-event" handler="buttonPressTblFiles" swapped="no"/>
                 <signal name="drag-data-received" handler="dropTblFiles" swapped="no"/>
                 <signal name="key-press-event" handler="keyPressTblFiles" swapped="no"/>
                 <child internal-child="selection">
@@ -1129,12 +1130,12 @@ Use a negative index to set one relative the the back</property>
         <property name="title" translatable="yes">sfbrename</property>
         <property name="show-close-button">True</property>
         <child>
-          <object class="GtkButton" id="pbOpen">
-            <property name="label" translatable="yes">Open</property>
+          <object class="GtkButton" id="pbAddFiles">
+            <property name="label" translatable="yes">Add Files</property>
             <property name="visible">True</property>
             <property name="can-focus">True</property>
             <property name="receives-default">True</property>
-            <signal name="clicked" handler="clickOpen" swapped="no"/>
+            <signal name="clicked" handler="clickAddFiles" swapped="no"/>
           </object>
         </child>
         <child>
@@ -1149,6 +1150,18 @@ Use a negative index to set one relative the the back</property>
           <packing>
             <property name="pack-type">end</property>
             <property name="position">1</property>
+          </packing>
+        </child>
+        <child>
+          <object class="GtkButton" id="pbAddFolders">
+            <property name="label" translatable="yes">Add Folders</property>
+            <property name="visible">True</property>
+            <property name="can-focus">True</property>
+            <property name="receives-default">True</property>
+            <signal name="clicked" handler="clickAddFolders" swapped="no"/>
+          </object>
+          <packing>
+            <property name="position">2</property>
           </packing>
         </child>
       </object>

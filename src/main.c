@@ -62,54 +62,34 @@ static uint8* readGzip(const char* path, size_t* olen) {
 
 void addFile(Window* win, const char* file) {
 	if (!g_utf8_validate(file, -1, NULL)) {
-		g_printerr("invalid UTF-8 input '%s'\n", file);
+		showMessageBox(win, GTK_MESSAGE_ERROR, GTK_BUTTONS_OK, "Invalid UTF-8 input path");
+		return;
+	}
+	size_t plen = strlen(file);
+	if (plen >= PATH_MAX) {
+		showMessageBox(win, GTK_MESSAGE_ERROR, GTK_BUTTONS_OK, "Path '%s' is too long", file);
 		return;
 	}
 	char path[PATH_MAX];
-#ifdef __MINGW32__
-	strcpy(path, file);
-#else
-	if (!realpath(file, path))
-		strcpy(path, file);
-#endif
+	memcpy(path, file, (plen + 1) * sizeof(char));
 
-	struct stat ps;
-#ifdef __MINGW32__
-	if (stat(path, &ps) || S_ISDIR(ps.st_mode)) {
-#else
-	if (lstat(path, &ps) || S_ISDIR(ps.st_mode) || S_ISLNK(ps.st_mode)) {
-#endif
-		g_printerr("file '%s' is invalid\n", path);
-		return;
-	}
-
-	size_t plen = strlen(path);
-	const char* sep = memrchr(path, '/', plen * sizeof(char));
+	char* sep = memrchr(path, '/', plen * sizeof(char));
 	sep = sep ? sep + 1 : path;
-	size_t dlen = sep - path;
-	size_t nlen = plen - dlen;
-	if (dlen >= PATH_MAX) {
-		g_printerr("directory of '%s' is too long\n", path);
-		return;
-	}
-	if (!dlen && path[0] == '/')
-		++dlen;
+	size_t nlen = path + plen - sep;
 	if (nlen >= FILENAME_MAX) {
-		g_printerr("'%s' is too long\n", sep + 1);
+		showMessageBox(win, GTK_MESSAGE_ERROR, GTK_BUTTONS_OK, "Filename '%s' is too long", sep);
 		return;
 	}
 	char name[FILENAME_MAX];
-	char dirc[PATH_MAX];
 	memcpy(name, sep, (nlen + 1) * sizeof(char));
-	memcpy(dirc, path, dlen * sizeof(char));
-	dirc[dlen] = '\0';
+	*sep = '\0';
 
 	GtkTreeIter it;
 	gtk_list_store_append(win->lsFiles, &it);
-	gtk_list_store_set(win->lsFiles, &it, FCOL_OLD_NAME, name, FCOL_NEW_NAME, name, FCOL_DIRECTORY, dirc, FCOL_INVALID);
+	gtk_list_store_set(win->lsFiles, &it, FCOL_OLD_NAME, name, FCOL_NEW_NAME, name, FCOL_DIRECTORY, path, FCOL_INVALID);
 }
 
-int showMessageBox(Window* win, GtkMessageType type, GtkButtonsType buttons, const char* format, ...) {
+GtkResponseType showMessageBox(Window* win, GtkMessageType type, GtkButtonsType buttons, const char* format, ...) {
 	va_list args;
 	va_start(args, format);
 	char* str = malloc(DEFAULT_PRINT_BUFFER_SIZE * sizeof(char));
@@ -120,12 +100,12 @@ int showMessageBox(Window* win, GtkMessageType type, GtkButtonsType buttons, con
 	}
 	va_end(args);
 	if (len < 0) {
-		g_printerr("failed to create message box\n");
+		g_printerr("Failed to create message box\n");
 		free(str);
 		return 0;
 	}
 
-	int rc;
+	GtkResponseType rc = GTK_RESPONSE_NONE;
 	if (win) {
 		GtkMessageDialog* dialog = GTK_MESSAGE_DIALOG(gtk_message_dialog_new(win->window, GTK_DIALOG_DESTROY_WITH_PARENT, type, buttons, "%s", str));
 		rc = gtk_dialog_run(GTK_DIALOG(dialog));
@@ -135,14 +115,19 @@ int showMessageBox(Window* win, GtkMessageType type, GtkButtonsType buttons, con
 			g_print("%s\n", str);
 		else
 			g_printerr("%s\n", str);
-		rc = 0;
+
+		if (buttons == GTK_BUTTONS_YES_NO || buttons == GTK_BUTTONS_OK_CANCEL) {
+			char ch;
+			scanf("%c", &ch);
+			rc = toupper(ch) == 'Y' || ch == '\n' ? GTK_RESPONSE_YES : GTK_RESPONSE_NO;
+		}
 	}
 	free(str);
 	return rc;
 }
 
-G_MODULE_EXPORT void clickOpen(GtkButton* button, Window* win) {
-	GtkFileChooserDialog* dialog = GTK_FILE_CHOOSER_DIALOG(gtk_file_chooser_dialog_new("Open File", win->window, GTK_FILE_CHOOSER_ACTION_OPEN, "Cancel", GTK_RESPONSE_CANCEL, "Open", GTK_RESPONSE_ACCEPT, NULL));
+static void runAddDialog(Window* win, const char* title, GtkFileChooserAction action) {
+	GtkFileChooserDialog* dialog = GTK_FILE_CHOOSER_DIALOG(gtk_file_chooser_dialog_new(title, win->window, action, "Cancel", GTK_RESPONSE_CANCEL, "Add", GTK_RESPONSE_ACCEPT, NULL));
 	gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(dialog), g_get_home_dir());
 	gtk_file_chooser_set_select_multiple(GTK_FILE_CHOOSER(dialog), true);
 
@@ -159,7 +144,7 @@ G_MODULE_EXPORT void clickOpen(GtkButton* button, Window* win) {
 				unbackslashify(path);
 				addFile(win, path);
 			} else
-				g_printerr("'%s' is too long\n", (char*)files->data);
+				showMessageBox(win, GTK_MESSAGE_ERROR, GTK_BUTTONS_OK, "Path '%s' is too long", (char*)files->data);
 #else
 			addFile(win, it->data);
 #endif
@@ -168,6 +153,14 @@ G_MODULE_EXPORT void clickOpen(GtkButton* button, Window* win) {
 		autoPreview(win);
 	}
 	gtk_widget_destroy(GTK_WIDGET(dialog));
+}
+
+G_MODULE_EXPORT void clickAddFiles(GtkButton* button, Window* win) {
+	runAddDialog(win, "Add Files", GTK_FILE_CHOOSER_ACTION_OPEN);
+}
+
+G_MODULE_EXPORT void clickAddFolders(GtkButton* button, Window* win) {
+	runAddDialog(win, "Add Folders", GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER);
 }
 
 static void activateClear(GtkMenuItem* menuitem, Window* win) {
@@ -217,11 +210,7 @@ G_MODULE_EXPORT void dropTblFiles(GtkWidget* widget, GdkDragContext* context, in
 	}
 }
 
-G_MODULE_EXPORT gboolean keyPressTblFiles(GtkWidget* widget, GdkEvent* event, Window* win) {
-	if (event->key.keyval != GDK_KEY_Delete)
-		return false;
-
-	GtkTreeView* view = GTK_TREE_VIEW(widget);
+static void deleteTableSelection(GtkTreeView* view, Window* win) {
 	GtkTreeSelection* selc = gtk_tree_view_get_selection(view);
 	GtkTreeModel* model;
 	GList* rows = gtk_tree_selection_get_selected_rows(selc, &model);
@@ -245,6 +234,17 @@ G_MODULE_EXPORT gboolean keyPressTblFiles(GtkWidget* widget, GdkEvent* event, Wi
 		autoPreview(win);
 	}
 	g_list_free_full(rows, (GDestroyNotify)gtk_tree_path_free);
+}
+
+G_MODULE_EXPORT gboolean buttonPressTblFiles(GtkWidget* widget, GdkEvent* event, Window* win) {
+	if (event->button.button == GDK_BUTTON_SECONDARY)
+		deleteTableSelection(GTK_TREE_VIEW(widget), win);
+	return false;
+}
+
+G_MODULE_EXPORT gboolean keyPressTblFiles(GtkWidget* widget, GdkEvent* event, Window* win) {
+	if (event->key.keyval != GDK_KEY_Delete)
+		deleteTableSelection(GTK_TREE_VIEW(widget), win);
 	return false;
 }
 
@@ -334,11 +334,7 @@ G_MODULE_EXPORT void clickOpenDestination(GtkButton* button, Window* win) {
 	GtkFileChooserDialog* dialog = GTK_FILE_CHOOSER_DIALOG(gtk_file_chooser_dialog_new("Pick Destination", win->window, GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER, "Cancel", GTK_RESPONSE_CANCEL, "Open", GTK_RESPONSE_ACCEPT, NULL));
 	const char* dst = gtk_entry_get_text(win->etDestination);
 	struct stat ps;
-#ifdef __MINGW32__
 	gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(dialog), !stat(dst, &ps) && S_ISDIR(ps.st_mode) ? dst : g_get_home_dir());
-#else
-	gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(dialog), !lstat(dst, &ps) && S_ISDIR(ps.st_mode) ? dst : g_get_home_dir());
-#endif
 	if (gtk_dialog_run(GTK_DIALOG(dialog)) == GTK_RESPONSE_ACCEPT) {
 		char* dirc = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(dialog));
 		if (dirc) {
@@ -421,7 +417,7 @@ static void initWindow(GtkApplication* app, Window* win) {
 	size_t glen;
 	char* glade = (char*)readGzip(path, &glen);
 	if (!glade) {
-		g_printerr("Failed to read %s\n", MAIN_GLADE_PATH);
+		g_printerr("Failed to read main.glade\n");
 		return;
 	}
 
@@ -429,7 +425,7 @@ static void initWindow(GtkApplication* app, Window* win) {
 	GError* error = NULL;
 	if (!gtk_builder_add_from_string(builder, glade, glen, &error)) {
 		free(glade);
-		g_printerr("Failed to load %s: %s\n", MAIN_GLADE_PATH, error->message);
+		g_printerr("Failed to load main.glade: %s\n", error->message);
 		g_clear_error(&error);
 		return;
 	}
@@ -546,9 +542,6 @@ static void initWindow(GtkApplication* app, Window* win) {
 		gtk_entry_set_text(win->etNumberSuffix, args->numberSuffix);
 		g_free(args->numberSuffix);
 	}
-#ifdef __MINGW32__
-	gtk_combo_box_text_remove(win->cmbDestinationMode, DESTINATION_LINK);
-#endif
 	if (args->destinationMode) {
 		gtk_combo_box_set_active(GTK_COMBO_BOX(win->cmbDestinationMode), args->gotDestinationMode);
 		g_free(args->destinationMode);

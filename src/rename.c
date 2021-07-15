@@ -1,5 +1,6 @@
 #include "rename.h"
 #include "main.h"
+#include <dirent.h>
 #include <fcntl.h>
 #include <sys/stat.h>
 #ifdef __MINGW32__
@@ -10,6 +11,14 @@
 
 static const char emptyStr[1] = "";
 
+static char* joinPath(const char* dir, size_t dlen, const char* file, size_t flen) {
+	char* path = malloc((dlen + flen + 2) * sizeof(char));
+	memcpy(path, dir, dlen * sizeof(char));
+	path[dlen] = '/';
+	memcpy(path + dlen + 1, file, (flen + 1) * sizeof(char));
+	return path;
+}
+
 static int copyFile(const char* src, const char* dst) {
 	int in = open(src, O_RDONLY);
 	if (in == -1)
@@ -19,6 +28,33 @@ static int copyFile(const char* src, const char* dst) {
 	if (fstat(in, &ps)) {
 		close(in);
 		return -1;
+	}
+	if (S_ISDIR(ps.st_mode)) {
+		close(in);
+		DIR* dir = opendir(src);
+		if (!dir)
+			return -1;
+
+		int rc = 0;
+		size_t slen = strlen(src);
+		size_t dlen = strlen(dst);
+		for (struct dirent* entry = readdir(dir); entry; entry = readdir(dir)) {
+			size_t nlen = strlen(entry->d_name);
+			char* from = joinPath(src, slen, entry->d_name, nlen);
+			char* to = joinPath(dst, dlen, entry->d_name, nlen);
+#ifdef __MINGW32__
+			if (!stat(from, &ps) && S_ISDIR(ps.st_mode))
+				mkdir(to);
+#else
+			if (entry->d_type == DT_DIR)
+				mkdir(to, !lstat(from, &ps) ? ps.st_mode & (S_ISUID | S_ISGID | S_ISVTX | S_IRWXU | S_IRWXG | S_IRWXO) : S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH);
+#endif
+			rc |= copyFile(from, to);
+			free(from);
+			free(to);
+		}
+		closedir(dir);
+		return rc;
 	}
 
 #ifdef __MINGW32__
@@ -48,6 +84,32 @@ static int copyFile(const char* src, const char* dst) {
 	close(out);
 	return rc;
 }
+
+#ifdef __MINGW32__
+static wchar* stow(const char* src) {
+	wchar* dst;
+	int len = MultiByteToWideChar(CP_UTF8, 0, src, -1, NULL, 0);
+	if (len > 1) {
+		dst = malloc(len * sizeof(wchar));
+		MultiByteToWideChar(CP_UTF8, 0, src, -1, dst, len);
+	} else {
+		dst = malloc(sizeof(wchar));
+		dst[0] = '\0';
+	}
+	return dst;
+}
+
+static int createSymlink(const char* src, const char* dst) {
+	struct stat ps;
+	DWORD flags = !stat(src, &ps) && S_ISDIR(ps.st_mode) ? SYMBOLIC_LINK_FLAG_DIRECTORY : 0;
+	wchar* wsrc = stow(src);
+	wchar* wdst = stow(dst);
+	int rc = CreateSymbolicLinkW(wdst, wsrc, flags);
+	free(wsrc);
+	free(wdst);
+	return rc ? 0 : -1;
+}
+#endif
 
 static size_t replaceRegex(char* name, regex_t* reg, const char* new, ushort nlen) {
 	char buf[FILENAME_MAX];
@@ -109,10 +171,10 @@ static size_t moveGName(char* dst, char* src) {
 	return len;
 }
 
-static bool nameRename(Process* prc, regex_t* reg) {
+static GtkResponseType nameRename(Process* prc, regex_t* reg, Window* win) {
 	switch (prc->renameMode) {
 	case RENAME_KEEP:
-		return true;
+		return GTK_RESPONSE_NONE;
 	case RENAME_RENAME:
 		prc->nameLen = prc->renameLen;
 		if (prc->nameLen < FILENAME_MAX)
@@ -134,11 +196,9 @@ static bool nameRename(Process* prc, regex_t* reg) {
 		prc->nameLen = moveGName(prc->name, g_utf8_strreverse(prc->name, prc->nameLen));
 	}
 
-	if (prc->nameLen >= FILENAME_MAX) {
-		g_printerr("new filename became too long\n");
-		return false;
-	}
-	return true;
+	if (prc->nameLen >= FILENAME_MAX)
+		return showMessageBox(win, GTK_MESSAGE_ERROR, GTK_BUTTONS_YES_NO, "Filename became too long during rename.\nContinue?");
+	return GTK_RESPONSE_NONE;
 }
 
 static void nameRemove(Process* prc) {
@@ -181,10 +241,10 @@ static void nameRemove(Process* prc) {
 	}
 }
 
-static bool nameAdd(Process* prc) {
+static GtkResponseType nameAdd(Process* prc, Window* win) {
 	if (prc->addInsertLen) {
 		if (prc->nameLen + prc->addInsertLen >= FILENAME_MAX)
-			goto errorTooLong;
+			return showMessageBox(win, GTK_MESSAGE_ERROR, GTK_BUTTONS_YES_NO, "Filename '%s' became too long during add.\nContinue?", prc->name);
 
 		char* pos;
 		ulong ulen = g_utf8_strlen(prc->name, prc->nameLen);
@@ -199,7 +259,7 @@ static bool nameAdd(Process* prc) {
 
 	if (prc->addPrefixLen) {
 		if (prc->nameLen + prc->addPrefixLen >= FILENAME_MAX)
-			goto errorTooLong;
+			return showMessageBox(win, GTK_MESSAGE_ERROR, GTK_BUTTONS_YES_NO, "Filename '%s' became too long during add.\nContinue?", prc->name);
 
 		memmove(prc->name + prc->addPrefixLen, prc->name, (prc->nameLen + 1) * sizeof(char));
 		memcpy(prc->name, prc->addPrefix, prc->addPrefixLen * sizeof(char));
@@ -208,19 +268,15 @@ static bool nameAdd(Process* prc) {
 
 	if (prc->addSuffixLen) {
 		if (prc->nameLen + prc->addSuffixLen >= FILENAME_MAX)
-			goto errorTooLong;
+			return showMessageBox(win, GTK_MESSAGE_ERROR, GTK_BUTTONS_YES_NO, "Filename '%s' became too long during add.\nContinue?", prc->name);
 
 		memcpy(prc->name + prc->nameLen, prc->addSuffix, (prc->addSuffixLen + 1) * sizeof(char));
 		prc->nameLen += prc->addSuffixLen;
 	}
-	return true;
-
-errorTooLong:
-	g_printerr("filename '%s' became too long during add\n", prc->name);
-	return false;
+	return GTK_RESPONSE_NONE;
 }
 
-static bool nameNumber(Process* prc, int id) {
+static GtkResponseType nameNumber(Process* prc, int id, Window* win) {
 	ulong ulen = g_utf8_strlen(prc->name, prc->nameLen);
 	char* pos;
 	if (prc->numberLocation < 0)
@@ -241,10 +297,9 @@ static bool nameNumber(Process* prc, int id) {
 
 	uint padLeft = blen < prc->numberPadding && prc->numberPadStrLen ? (prc->numberPadding - blen) * prc->numberPadStrLen : 0;
 	uint pbslen = prc->numberPrefixLen + negative + padLeft + blen + prc->numberSuffixLen;
-	if (prc->nameLen + pbslen >= FILENAME_MAX) {
-		g_printerr("filename '%s' became too long while adding number\n", prc->name);
-		return false;
-	}
+	if (prc->nameLen + pbslen >= FILENAME_MAX)
+		return showMessageBox(win, GTK_MESSAGE_ERROR, GTK_BUTTONS_YES_NO, "Filename '%s' became too long while adding number.\nContinue?", prc->name);
+
 	memmove(pos + pbslen, pos, (prc->name + prc->nameLen - pos + 1) * sizeof(char));
 	pos = (char*)memcpy(pos, prc->numberPrefix, prc->numberPrefixLen * sizeof(char)) + prc->numberPrefixLen;
 	if (negative)
@@ -255,18 +310,18 @@ static bool nameNumber(Process* prc, int id) {
 		*pos++ = buf[--blen];
 	memcpy(pos, prc->numberSuffix, prc->numberSuffixLen * sizeof(char));
 	prc->nameLen += pbslen;
-	return true;
+	return GTK_RESPONSE_NONE;
 }
 
-static size_t processExtension(Process* prc, const char* str) {
+static size_t processExtension(Process* prc, const char* str, size_t slen) {
 	size_t dot;
 	if (prc->extensionElements < 0) {
-		char* pos = memchr(str, '.', prc->nameLen);
+		char* pos = memchr(str, '.', slen);
 		if (pos == str)
-			pos = memchr(str + 1, '.', prc->nameLen - 1);
-		dot = pos ? (size_t)(pos - str) : prc->nameLen;
+			pos = memchr(str + 1, '.', slen - 1);
+		dot = pos ? (size_t)(pos - str) : slen;
 	} else {
-		dot = prc->nameLen;
+		dot = slen;
 		for (int i = 0; dot && i < prc->extensionElements; ++i) {
 			char* pos = memrchr(str, '.', dot);
 			if (!pos)
@@ -274,7 +329,7 @@ static size_t processExtension(Process* prc, const char* str) {
 			dot = pos - str;
 		}
 	}
-	size_t elen = prc->nameLen - dot;
+	size_t elen = slen - dot;
 	memcpy(prc->name, str, dot * sizeof(char));
 	prc->name[dot] = '\0';
 	if (!elen) {
@@ -308,37 +363,35 @@ static size_t processExtension(Process* prc, const char* str) {
 	return elen;
 }
 
-static bool processName(Process* prc, const char* oldn, size_t olen) {
-	prc->nameLen = olen;
-	if (prc->nameLen >= FILENAME_MAX) {
-		g_printerr("filename '%s' too long\n", oldn);
-		return false;
-	}
-	size_t elen = processExtension(prc, oldn);
-	if (elen >= FILENAME_MAX) {
-		g_printerr("extension too long\n");
-		return false;
-	}
+static GtkResponseType processName(Process* prc, const char* oldn, size_t olen, Window* win) {
+	if (olen >= FILENAME_MAX)
+		return showMessageBox(win, GTK_MESSAGE_ERROR, GTK_BUTTONS_YES_NO, "Filename '%s' is too long.\nContinue?", oldn);
+	size_t elen = processExtension(prc, oldn, olen);
+	if (elen >= FILENAME_MAX)
+		return showMessageBox(win, GTK_MESSAGE_ERROR, GTK_BUTTONS_YES_NO, "Extension becase too long.\nContinue?");
+	prc->nameLen = olen - elen;
 
-	if (!nameRename(prc, prc->replaceRegex ? &prc->regRename : NULL))
-		return false;
+	GtkResponseType rc = nameRename(prc, prc->replaceRegex ? &prc->regRename : NULL, win);
+	if (rc != GTK_RESPONSE_NONE)
+		return rc;
 	nameRemove(prc);
-	if (!nameAdd(prc))
-		return false;
-	if (prc->number)
-		if (!nameNumber(prc, prc->id))
-			return false;
-
-	if (prc->nameLen + elen >= FILENAME_MAX) {
-		g_printerr("filename '%s' became too long while reapplying extension\n", prc->name);
-		return false;
+	rc = nameAdd(prc, win);
+	if (rc != GTK_RESPONSE_NONE)
+		return rc;
+	if (prc->number) {
+		rc = nameNumber(prc, prc->id, win);
+		if (rc != GTK_RESPONSE_NONE)
+			return rc;
 	}
+
+	if (prc->nameLen + elen >= FILENAME_MAX)
+		return showMessageBox(win, GTK_MESSAGE_ERROR, GTK_BUTTONS_YES_NO, "Filename '%s' became too long while reapplying extension.\nContinue?", prc->name);
 	memcpy(prc->name + prc->nameLen, prc->extension, (elen + 1) * sizeof(char));
 	prc->nameLen += elen;
-	return true;
+	return rc;
 }
 
-static bool initRegex(Window* win, bool* inUse, regex_t* reg, const char* expr, ushort exlen, bool use, bool ci) {
+static bool initRegex(bool* inUse, regex_t* reg, const char* expr, ushort exlen, bool use, bool ci, Window* win) {
 	*inUse = use && exlen;
 	if (*inUse) {
 		int err = regcomp(reg, expr, REG_EXTENDED | (ci ? REG_ICASE : 0));
@@ -346,7 +399,7 @@ static bool initRegex(Window* win, bool* inUse, regex_t* reg, const char* expr, 
 			size_t elen = regerror(err, reg, NULL, 0);
 			char* estr = malloc(elen * sizeof(char));
 			regerror(err, reg, estr, elen);
-			showMessageBox(win, GTK_MESSAGE_ERROR, GTK_BUTTONS_OK, "Invalid regular expression:\n%s", estr);
+			showMessageBox(win, GTK_MESSAGE_ERROR, GTK_BUTTONS_OK, "Invalid regular expression: '%s'\n", estr);
 			free(estr);
 			return *inUse = false;
 		}
@@ -355,17 +408,54 @@ static bool initRegex(Window* win, bool* inUse, regex_t* reg, const char* expr, 
 }
 
 static bool initRename(Process* prc, Window* win) {
-	if (!(g_utf8_validate_len(prc->extensionName, prc->extensionNameLen, NULL) && g_utf8_validate_len(prc->extensionReplace, prc->extensionReplaceLen, NULL)
-			&& g_utf8_validate_len(prc->rename, prc->renameLen, NULL) && g_utf8_validate_len(prc->replace, prc->replaceLen, NULL) && g_utf8_validate_len(prc->addInsert, prc->addInsertLen, NULL)
-			&& g_utf8_validate_len(prc->addPrefix, prc->addPrefixLen, NULL) && g_utf8_validate_len(prc->addSuffix, prc->addSuffixLen, NULL) && g_utf8_validate_len(prc->numberPadStr, prc->numberPadStrLen, NULL)
-			&& g_utf8_validate_len(prc->numberPrefix, prc->numberPrefixLen, NULL) && g_utf8_validate_len(prc->numberSuffix, prc->numberSuffixLen, NULL) && g_utf8_validate_len(prc->destination, prc->destinationLen, NULL))) {
-		showMessageBox(win, GTK_MESSAGE_ERROR, GTK_BUTTONS_OK, "Invalid UTF-8 input");
+	if (!g_utf8_validate_len(prc->extensionName, prc->extensionNameLen, NULL)) {
+		showMessageBox(win, GTK_MESSAGE_ERROR, GTK_BUTTONS_OK, "Invalid UTF-8 extension name");
+		return false;
+	}
+	if (!g_utf8_validate_len(prc->extensionReplace, prc->extensionReplaceLen, NULL)) {
+		showMessageBox(win, GTK_MESSAGE_ERROR, GTK_BUTTONS_OK, "Invalid UTF-8 extension replace");
+		return false;
+	}
+	if (!g_utf8_validate_len(prc->rename, prc->renameLen, NULL)) {
+		showMessageBox(win, GTK_MESSAGE_ERROR, GTK_BUTTONS_OK, "Invalid UTF-8 rename name");
+		return false;
+	}
+	if (!g_utf8_validate_len(prc->replace, prc->replaceLen, NULL)) {
+		showMessageBox(win, GTK_MESSAGE_ERROR, GTK_BUTTONS_OK, "Invalid UTF-8 rename replace");
+		return false;
+	}
+	if (!g_utf8_validate_len(prc->addInsert, prc->addInsertLen, NULL)) {
+		showMessageBox(win, GTK_MESSAGE_ERROR, GTK_BUTTONS_OK, "Invalid UTF-8 add insert string");
+		return false;
+	}
+	if (!g_utf8_validate_len(prc->addPrefix, prc->addPrefixLen, NULL)) {
+		showMessageBox(win, GTK_MESSAGE_ERROR, GTK_BUTTONS_OK, "Invalid UTF-8 add prefix");
+		return false;
+	}
+	if (!g_utf8_validate_len(prc->addSuffix, prc->addSuffixLen, NULL)) {
+		showMessageBox(win, GTK_MESSAGE_ERROR, GTK_BUTTONS_OK, "Invalid UTF-8 add suffix");
+		return false;
+	}
+	if (!g_utf8_validate_len(prc->numberPadStr, prc->numberPadStrLen, NULL)) {
+		showMessageBox(win, GTK_MESSAGE_ERROR, GTK_BUTTONS_OK, "Invalid UTF-8 number pad string");
+		return false;
+	}
+	if (!g_utf8_validate_len(prc->numberPrefix, prc->numberPrefixLen, NULL)) {
+		showMessageBox(win, GTK_MESSAGE_ERROR, GTK_BUTTONS_OK, "Invalid UTF-8 number prefix");
+		return false;
+	}
+	if (!g_utf8_validate_len(prc->numberSuffix, prc->numberSuffixLen, NULL)) {
+		showMessageBox(win, GTK_MESSAGE_ERROR, GTK_BUTTONS_OK, "Invalid UTF-8 number suffix");
+		return false;
+	}
+	if (!g_utf8_validate_len(prc->destination, prc->destinationLen, NULL)) {
+		showMessageBox(win, GTK_MESSAGE_ERROR, GTK_BUTTONS_OK, "Invalid UTF-8 destination path");
 		return false;
 	}
 
-	if (!initRegex(win, &prc->extensionRegex, &prc->regExtension, prc->extensionReplace, prc->extensionReplaceLen, prc->extensionRegex, prc->extensionCi))
+	if (!initRegex(&prc->extensionRegex, &prc->regExtension, prc->extensionReplace, prc->extensionReplaceLen, prc->extensionRegex, prc->extensionCi, win))
 		return false;
-	if (!initRegex(win, &prc->replaceRegex, &prc->regRename, prc->replace, prc->replaceLen, prc->replaceRegex, prc->replaceCi)) {
+	if (!initRegex(&prc->replaceRegex, &prc->regRename, prc->replace, prc->replaceLen, prc->replaceRegex, prc->replaceCi, win)) {
 		if (prc->extensionRegex)
 			regfree(&prc->regExtension);
 		return false;
@@ -491,7 +581,7 @@ static bool initConsoleRename(Process* prc, Arguments* arg) {
 	return initRename(prc, NULL);
 }
 
-static char* initDestination(Process* prc, size_t* dlen) {
+static char* initDestination(Process* prc, size_t* dlen, Window* win) {
 	if (prc->destinationMode == DESTINATION_IN_PLACE) {
 		*dlen = 0;
 		return malloc(PATH_MAX * sizeof(char));
@@ -499,7 +589,7 @@ static char* initDestination(Process* prc, size_t* dlen) {
 
 	struct stat ps;
 	if (stat(prc->destination, &ps) || !S_ISDIR(ps.st_mode)) {
-		g_printerr("Destination '%s' is not a valid directory", prc->destination);
+		showMessageBox(win, GTK_MESSAGE_ERROR, GTK_BUTTONS_OK, "Destination '%s' is not a valid directory", prc->destination);
 		closeRename(prc);
 		return NULL;
 	}
@@ -507,7 +597,7 @@ static char* initDestination(Process* prc, size_t* dlen) {
 	bool extend = prc->destination[prc->destinationLen - 1] != '/';
 	*dlen = prc->destinationLen + extend;
 	if (*dlen >= PATH_MAX) {
-		g_printerr("Directory '%s' is too long", prc->destination);
+		showMessageBox(win, GTK_MESSAGE_ERROR, GTK_BUTTONS_OK, "Directory '%s' is too long", prc->destination);
 		closeRename(prc);
 		return NULL;
 	}
@@ -519,33 +609,21 @@ static char* initDestination(Process* prc, size_t* dlen) {
 	return dirc;
 }
 
-static bool processFile(Process* prc, char* dirc, size_t dlen, const char* oldn, size_t olen) {
-	if (prc->destinationMode != DESTINATION_IN_PLACE) {
-		struct stat ps;
-		if (stat(dirc, &ps) || !S_ISDIR(ps.st_mode)) {
-			g_printerr("Destination '%s' is not a valid directory", dirc);
-			return false;
-		}
-	}
-	if (dlen + prc->nameLen >= PATH_MAX) {
-		g_printerr("directory '%s' and filename '%s' are too long\n", dirc, prc->name);
-		return false;
-	}
-	if (dlen + olen >= PATH_MAX) {
-		g_printerr("directory '%s' and filename '%s' are too long\n", dirc, oldn);
-		return false;
-	}
+static GtkResponseType processFile(Process* prc, char* dirc, size_t dlen, const char* oldn, size_t olen, Window* win) {
+	if (dlen + prc->nameLen >= PATH_MAX)
+		return showMessageBox(win, GTK_MESSAGE_ERROR, GTK_BUTTONS_YES_NO, "Directory '%s' and filename '%s' are too long.\nContinue?", dirc, prc->name);
+	if (dlen + olen >= PATH_MAX)
+		return showMessageBox(win, GTK_MESSAGE_ERROR, GTK_BUTTONS_YES_NO, "Directory '%s' and filename '%s' are too long.\nContinue?", dirc, oldn);
+
 	memcpy(dirc + dlen, oldn, (olen + 1) * sizeof(char));
 	memmove(prc->name + dlen, prc->name, (prc->nameLen + 1) * sizeof(char));
 	memcpy(prc->name, dirc, dlen * sizeof(char));
 #ifdef __MINGW32__
-	int rc = (int (*const[4])(const char*, const char*)){ rename, rename, copyFile }[prc->destinationMode](dirc, prc->name);
+	int rc = (int (*const[4])(const char*, const char*)){ rename, rename, copyFile, createSymlink }[prc->destinationMode](dirc, prc->name);
 #else
 	int rc = (int (*const[4])(const char*, const char*)){ rename, rename, copyFile, symlink }[prc->destinationMode](dirc, prc->name);
 #endif
-	if (rc)
-		g_printerr("%s\n", strerror(errno));
-	return !rc;
+	return rc ? showMessageBox(win, GTK_MESSAGE_ERROR, GTK_BUTTONS_YES_NO, "%s\nContinue?", strerror(errno)) : GTK_RESPONSE_NONE;
 }
 
 void windowRename(Window* win) {
@@ -554,30 +632,32 @@ void windowRename(Window* win) {
 		return;
 
 	size_t dlen;
-	char* dirc = initDestination(prc, &dlen);
+	char* dirc = initDestination(prc, &dlen, win);
 	if (!dirc)
 		return;
 
+	GtkResponseType rc;
 	do {
 		char* oldn;
 		gtk_tree_model_get(prc->model, &prc->it, FCOL_OLD_NAME, &oldn, FCOL_INVALID);
 		size_t olen = strlen(oldn);
-		if (processName(prc, oldn, olen)) {
+		rc = processName(prc, oldn, olen, win);
+		if (rc == GTK_RESPONSE_NONE) {
 			if (prc->destinationMode == DESTINATION_IN_PLACE) {
 				char* tmp;
 				gtk_tree_model_get(prc->model, &prc->it, FCOL_DIRECTORY, &tmp, FCOL_INVALID);
 				dlen = strlen(tmp);
 				memcpy(dirc, tmp, (dlen + 1) * sizeof(char));
-				if (dirc[dlen - 1] != '/')
-					strcpy(dirc + dlen++, "/");
 				g_free(tmp);
 			}
-			if (processFile(prc, dirc, dlen, oldn, olen))
+
+			rc = processFile(prc, dirc, dlen, oldn, olen, win);
+			if (rc == GTK_RESPONSE_NONE)
 				gtk_list_store_set(win->lsFiles, &prc->it, FCOL_OLD_NAME, prc->name + dlen, FCOL_NEW_NAME, prc->name + dlen, FCOL_INVALID);
 		}
 		g_free(oldn);
 		prc->id += prc->step;
-	} while (prc->forward ? gtk_tree_model_iter_next(prc->model, &prc->it) : gtk_tree_model_iter_previous(prc->model, &prc->it));
+	} while ((rc == GTK_RESPONSE_NONE || rc == GTK_RESPONSE_OK) && (prc->forward ? gtk_tree_model_iter_next(prc->model, &prc->it) : gtk_tree_model_iter_previous(prc->model, &prc->it)));
 	free(dirc);
 	closeRename(prc);
 }
@@ -589,11 +669,12 @@ void consoleRename(Window* win) {
 		return;
 
 	size_t dlen;
-	char* dirc = initDestination(prc, &dlen);
+	char* dirc = initDestination(prc, &dlen, NULL);
 	if (!dirc)
 		return;
 
-	for (; prc->forward ? prc->id < arg->nFiles : prc->id >= 0; prc->id += prc->step) {
+	GtkResponseType rc;
+	do {
 		const char* path = g_file_peek_path(arg->files[prc->id]);
 		size_t plen = strlen(path);
 		const char* sl = memrchr(path, '/', plen * sizeof(char));
@@ -613,9 +694,14 @@ void consoleRename(Window* win) {
 		size_t olen = path + plen - sl - 1;
 		const char* oldn = sl + 1;
 
-		if (processName(prc, oldn, olen) && !processFile(prc, dirc, dlen, oldn, olen) && !arg->noAutoPreview)
-			g_print("'%s' -> '%s'\n", oldn, prc->name);
-	}
+		rc = processName(prc, oldn, olen, NULL);
+		if (rc == GTK_RESPONSE_NONE) {
+			rc = processFile(prc, dirc, dlen, oldn, olen, NULL);
+			if (rc == GTK_RESPONSE_NONE && !arg->noAutoPreview)
+				g_print("'%s' -> '%s'\n", oldn, prc->name);
+		}
+		prc->id += prc->step;
+	} while ((rc == GTK_RESPONSE_NONE || rc == GTK_RESPONSE_OK) && (prc->forward ? prc->id < arg->nFiles : prc->id >= 0));
 	free(dirc);
 	closeRename(prc);
 }
@@ -625,14 +711,16 @@ void windowPreview(Window* win) {
 	if (!initWindowRename(win))
 		return;
 
+	GtkResponseType rc;
 	do {
 		char* oldn;
 		gtk_tree_model_get(prc->model, &prc->it, FCOL_OLD_NAME, &oldn, FCOL_INVALID);
-		if (processName(prc, oldn, strlen(oldn)))
+		rc = processName(prc, oldn, strlen(oldn), win);
+		if (rc == GTK_RESPONSE_NONE)
 			gtk_list_store_set(win->lsFiles, &prc->it, FCOL_NEW_NAME, prc->name, FCOL_INVALID);
 		g_free(oldn);
 		prc->id += prc->step;
-	} while (prc->forward ? gtk_tree_model_iter_next(prc->model, &prc->it) : gtk_tree_model_iter_previous(prc->model, &prc->it));
+	} while ((rc == GTK_RESPONSE_NONE || rc == GTK_RESPONSE_OK) && (prc->forward ? gtk_tree_model_iter_next(prc->model, &prc->it) : gtk_tree_model_iter_previous(prc->model, &prc->it)));
 	closeRename(prc);
 }
 
@@ -642,7 +730,8 @@ void consolePreview(Window* win) {
 	if (!initConsoleRename(prc, arg))
 		return;
 
-	for (; prc->forward ? prc->id < arg->nFiles : prc->id >= 0; prc->id += prc->step) {
+	GtkResponseType rc;
+	do {
 		const char* path = g_file_peek_path(arg->files[prc->id]);
 		size_t olen = strlen(path);
 		const char* oldn = memrchr(path, '/', olen * sizeof(char));
@@ -651,8 +740,10 @@ void consolePreview(Window* win) {
 		else
 			oldn = path;
 
-		if (processName(prc, oldn, olen))
+		rc = processName(prc, oldn, olen, NULL);
+		if (rc == GTK_RESPONSE_NONE)
 			g_print("'%s' -> '%s'\n", oldn, prc->name);
-	}
+		prc->id += prc->step;
+	} while ((rc == GTK_RESPONSE_NONE || rc == GTK_RESPONSE_OK) && (prc->forward ? prc->id < arg->nFiles : prc->id >= 0));
 	closeRename(prc);
 }

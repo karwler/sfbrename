@@ -7,7 +7,7 @@ static void checkArgName(gchar** name) {
 	if (*name) {
 		size_t len = strlen(*name);
 		if (len >= FILENAME_MAX) {
-			g_printerr("name '%s' is too long\n", *name);
+			g_printerr("Filename '%s' is too long\n", *name);
 			g_free(*name);
 			*name = NULL;
 		}
@@ -54,10 +54,8 @@ static DestinationMode parseDestinationMode(const gchar* mode) {
 		return DESTINATION_MOVE;
 	if (id == DESTINATION_COPY || !strcasecmp(mode, "c") || !strcasecmp(mode, "copy"))
 		return DESTINATION_COPY;
-#ifndef __MINGW32__
 	if (id == DESTINATION_LINK || !strcasecmp(mode, "l") || !strcasecmp(mode, "link"))
 		return DESTINATION_LINK;
-#endif
 	return DESTINATION_IN_PLACE;
 }
 
@@ -69,7 +67,7 @@ void processArguments(Window* win) {
 		if (path[plen - 1] != '/')
 			path[plen++] = '/';
 	} else
-		g_printerr("current working directory path is too long\n");
+		g_printerr("Current working directory path too long\n");
 
 #ifdef __MINGW32__
 	char buf[PATH_MAX];
@@ -82,13 +80,12 @@ void processArguments(Window* win) {
 #ifdef __MINGW32__
 				size_t fsiz = strlen(file) + 1;
 				if (fsiz >= PATH_MAX) {
-					g_printerr("'%s' is too long\n", file);
+					g_printerr("Filepath '%s' is too long\n", file);
 					continue;
 				}
 				memcpy(buf, file, fsiz * sizeof(char));
 				unbackslashify(buf);
-				if ((isalnum(buf[0]) && buf[1] == ':' && buf[2] == '/') || !strncmp(buf, "//", 2))
-					addFile(win, buf);
+				addFile(win, buf);
 #else
 				addFile(win, file);
 #endif
@@ -132,68 +129,64 @@ void initCommandLineArguments(GtkApplication* app, Arguments* args, int argc, ch
 	args->numberBase = 10;
 	args->numberPadding = 1;
 
-#ifdef __MINGW32__
-	const char* dstMsg = "\n\tSet whether to rename the files in place, move or copy them. This option can be set with \"in-place\", \"move\", \"copy\", their first letters or indices 0 - 2.\n";
-#else
-	const char* dstMsg = "\n\tSet whether to rename the files in place, move them, copy them or create symlinks to them. This option can be set with \"in-place\", \"move\", \"copy\", \"link\", their first letters or indices 0 - 3.\n";
-#endif
 	const char* extMsg = "\n\tSet how to change a filename's extension.\n"
 "1. Replace the extension with the string set by --extension-name. This option is set with \"rename\", \"n\" or \"1\".\n"
-"2. Replace all occurences of a string set by --extension-name with the string set by --extension-replace. Use --extension-case to make the search case insensitive and --extension-regex to use --extension-name as a regular expression. This option is set with \"replace\", \"r\" or \"2\".\n"
+"2. Replace all occurrences of a string set by --extension-name with the string set by --extension-replace. Use --extension-case to make the search case insensitive and --extension-regex to use --extension-name as a regular expression. This option is set with \"replace\", \"r\" or \"2\".\n"
 "3. Transform an extension to lower case. This option is set with \"lower\", \"l\" or \"3\".\n"
 "4. Transform an extension to upper case. This option is set with \"upper\", \"u\" or \"4\".\n"
 "5. Reverse an extension. This option is set with \"reverse\", \"v\" or \"5\".\n";
 	const char* filMsg = "\n\tSet how to change the whole filename.\n"
 "1. Replace the filename with the string set by --rename-name. This option is set with \"rename\", \"n\" or \"1\".\n"
-"2. Replace all occurences of a string set by --rename-name with the string set by --rename-replace. Use --rename-case to make the search case insensitive and --rename-regex to use --rename-name as a regular expression. This option is set with \"replace\", \"r\" or \"2\".\n"
+"2. Replace all occurrences of a string set by --rename-name with the string set by --rename-replace. Use --rename-case to make the search case insensitive and --rename-regex to use --rename-name as a regular expression. This option is set with \"replace\", \"r\" or \"2\".\n"
 "3. Transform the filename to lower case. This option is set with \"lower\", \"l\" or \"3\".\n"
 "4. Transform the filename to upper case. This option is set with \"upper\", \"u\" or \"4\".\n"
 "5. Reverse the filename. This option is set with \"reverse\", \"v\" or \"5\".\n";
 
 	GOptionEntry params[] = {
-		{ "no-gui", 'g', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE, &args->noGui, "\n\tDon't open a window and only process the files.\n", "TEST", },
-		{ "no-auto-preview", 'a', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE, &args->noAutoPreview, "\n\tDisable auto preview. When combined with --no-gui it'll disable verbose output.\n", NULL, },
-		{ "dry", 'y', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE, &args->dry, "\n\tWhen combined with --no-gui the new filenames will be shown without renaming any files.\n", NULL, },
-		{ "backwards", 'b', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE, &args->backwards, "\n\tRename the files in backwards order. Useful for when filenames might overlap during the process.\n", NULL, },
-		{ "add-insert", 'i', G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING, &args->addInsert, "\n\tInsert a string at the location specified by --add-at.\n", "STRING", },
-		{ "add-at", 'k', G_OPTION_FLAG_NONE, G_OPTION_ARG_INT64, &args->addAt, "\n\tInsert the string set by --add-insert at this index. A negative index can be used to set a location relative to a filename's length.\n", "INDEX", },
-		{ "add-prefix", 'p', G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING, &args->addPrefix, "\n\tPrefix filenames with this string.\n", "STRING", },
-		{ "add-suffix", 's', G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING, &args->addSuffix, "\n\tSuffix filenames with this string.\n", "STRING", },
-		{ "destination-mode", 'D', G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING, &args->destinationMode, dstMsg, "MODE", },
-		{ "destination", 'd', G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING, &args->destination, "\n\tSet the destination directory when --destination-mode isn't set to \"in place\".\n", "DIRECTORY", },
-		{ "extension-mode", 'M', G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING, &args->extensionMode, extMsg, "MODE", },
-		{ "extension-name", 'N', G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING, &args->extensionName, "\n\tReplace the extension of a filename with this string. If --extension-mode is set to \"replace\" this string will be replaced by the string set with --extension-replace. Implies \"--extension-mode rename\" if --extension-mode isn't set to \"replace\".\n", "STRING", },
-		{ "extension-replace", 'R', G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING, &args->extensionReplace, "\n\tReplace the string set by --extension-name with this string. Implies \"--extension-mode replace\".\n", "STRING", },
-		{ "extension-case", 'I', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE, &args->extensionCi, "\n\tDo a case insensitive search when --extension-mode is set to \"replace\".\n", NULL, },
-		{ "extension-regex", 'X', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE, &args->extensionRegex, "\n\tUse the string set by --extension-name as a regular expression when --extension-mode is set to \"replace\".\n", NULL, },
-		{ "extension-elements", 'E', G_OPTION_FLAG_NONE, G_OPTION_ARG_INT64, &args->extensionElements, "\n\tThe number of dots to consider part of a filename an extension. A negative value will use all dots, excluding an initial dot. Default value is -1.\n", "NUMBER", },
-		{ "number-location", 'L', G_OPTION_FLAG_NONE, G_OPTION_ARG_INT64, &args->numberLocation, "\n\tAn index where to insert a number into a filename. A negative index can be used to set a location relative to a filename's length.\n", "INDEX", },
-		{ "number-start", 'S', G_OPTION_FLAG_NONE, G_OPTION_ARG_INT64, &args->numberStart, "\n\tA starting number for the numbering. Default value is 0.\n", "START", },
-		{ "number-step", 'T', G_OPTION_FLAG_NONE, G_OPTION_ARG_INT64, &args->numberStep, "\n\tThe increment for the numbering. Default value is 1.\n", "INCREMENT", },
-		{ "number-base", 'B', G_OPTION_FLAG_NONE, G_OPTION_ARG_INT64, &args->numberBase, "\n\tThe base for which numerical system to use. Can be between 2 and 64 and is 10 by default.\n", "BASE", },
-		{ "number-padding", 'D', G_OPTION_FLAG_NONE, G_OPTION_ARG_INT64, &args->numberPadding, "\n\tA padding number for at least how many digits to print. Said digits are set by --number-padstr. Default value is 1 i.e. no padding.\n", "NUMBER", },
-		{ "number-padstr", 'C', G_OPTION_FLAG_NONE, G_OPTION_ARG_INT64, &args->numberPadStr, "\n\tWhat padding string to use for when --number-padding is set. Default value is \"0\".\n", "STRING", },
-		{ "number-prefix", 'P', G_OPTION_FLAG_NONE, G_OPTION_ARG_INT64, &args->numberPrefix, "\n\tPrefix the number with this string.\n", "STRING", },
-		{ "number-suffix", 'S', G_OPTION_FLAG_NONE, G_OPTION_ARG_INT64, &args->numberSuffix, "\n\tSuffix the number with this string.\n", "STRING", },
-		{ "remove-from", 'o', G_OPTION_FLAG_NONE, G_OPTION_ARG_INT64, &args->removeFrom, "\n\tStart removing characters starting from this index. This number must be lower than the one set by --remove-to.\n", "INDEX", },
-		{ "remove-to", 't', G_OPTION_FLAG_NONE, G_OPTION_ARG_INT64, &args->removeTo, "\n\tRemove characters from the index set by --remove-from until this index. This number must be greater than the one set by --remove-from.\n", "INDEX", },
-		{ "remove-first", 'f', G_OPTION_FLAG_NONE, G_OPTION_ARG_INT64, &args->removeFirst, "\n\tA number of characters to remove from the beginning of a filename.\n", "LENGTH", },
-		{ "remove-last", 'l', G_OPTION_FLAG_NONE, G_OPTION_ARG_INT64, &args->removeLast, "\n\tA number of characters to remove from the end of a filename.\n", "LENGTH", },
-		{ "rename-mode", 'm', G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING, &args->renameMode, filMsg, "MODE", },
-		{ "rename-name", 'n', G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING, &args->rename, "\n\tReplace a filename with this string. If --rename-mode is set to \"replace\" this string will be replaced by the string set with --rename-replace. Implies \"--rename-mode rename\" if --rename-mode isn't set to \"replace\".\n", "STRING", },
-		{ "rename-replace", 'r', G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING, &args->replace, "\n\tReplace the string set by --rename-name with this string. Implies \"--rename-mode replace\".\n", "STRING", },
-		{ "rename-case", 'i', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE, &args->replaceCi, "\n\tDo a case insensitive search when --rename-mode is set to \"replace\".\n", NULL, },
-		{ "rename-regex", 'x', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE, &args->replaceRegex, "\n\tUse the string set by --rename-name as a regular expression when --rename-mode is set to \"replace\".\n", NULL, },
+		{ "no-gui", 'g', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE, &args->noGui, "\n\tDon't open a window and only process the files.\n", "TEST" },
+		{ "no-auto-preview", 'a', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE, &args->noAutoPreview, "\n\tDisable auto preview. When combined with --no-gui it'll disable verbose output.\n", NULL },
+		{ "dry", 'y', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE, &args->dry, "\n\tWhen combined with --no-gui the new filenames will be shown without renaming any files.\n", NULL },
+		{ "backwards", 'b', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE, &args->backwards, "\n\tRename the files in backwards order. Useful for when filenames might overlap during the process.\n", NULL },
+		{ "add-insert", 'i', G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING, &args->addInsert, "\n\tInsert a string at the location specified by --add-at.\n", "STRING" },
+		{ "add-at", 'k', G_OPTION_FLAG_NONE, G_OPTION_ARG_INT64, &args->addAt, "\n\tInsert the string set by --add-insert at this index. A negative index can be used to set a location relative to a filename's length.\n", "INDEX" },
+		{ "add-prefix", 'p', G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING, &args->addPrefix, "\n\tPrefix filenames with this string.\n", "STRING" },
+		{ "add-suffix", 's', G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING, &args->addSuffix, "\n\tSuffix filenames with this string.\n", "STRING" },
+		{ "destination-mode", 'D', G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING, &args->destinationMode, "\n\tSet whether to rename the files in place, move them, copy them or create symlinks to them. This option can be set with \"in-place\", \"move\", \"copy\", \"link\", their first letters or indices 0 - 3.\n", "MODE" },
+		{ "destination", 'd', G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING, &args->destination, "\n\tSet the destination directory when --destination-mode isn't set to \"in place\".\n", "DIRECTORY" },
+		{ "extension-mode", 'M', G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING, &args->extensionMode, extMsg, "MODE" },
+		{ "extension-name", 'N', G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING, &args->extensionName, "\n\tReplace the extension of a filename with this string. If --extension-mode is set to \"replace\" this string will be replaced by the string set with --extension-replace. Implies \"--extension-mode rename\" if --extension-mode isn't set to \"replace\".\n", "STRING" },
+		{ "extension-replace", 'R', G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING, &args->extensionReplace, "\n\tReplace the string set by --extension-name with this string. Implies \"--extension-mode replace\".\n", "STRING" },
+		{ "extension-case", 'I', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE, &args->extensionCi, "\n\tDo a case insensitive search when --extension-mode is set to \"replace\".\n", NULL },
+		{ "extension-regex", 'X', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE, &args->extensionRegex, "\n\tUse the string set by --extension-name as a regular expression when --extension-mode is set to \"replace\".\n", NULL },
+		{ "extension-elements", 'E', G_OPTION_FLAG_NONE, G_OPTION_ARG_INT64, &args->extensionElements, "\n\tThe number of dots to consider part of a filename an extension. A negative value will use all dots, excluding an initial dot. Default value is -1.\n", "NUMBER" },
+		{ "number-location", 'L', G_OPTION_FLAG_NONE, G_OPTION_ARG_INT64, &args->numberLocation, "\n\tAn index where to insert a number into a filename. A negative index can be used to set a location relative to a filename's length.\n", "INDEX" },
+		{ "number-start", 'S', G_OPTION_FLAG_NONE, G_OPTION_ARG_INT64, &args->numberStart, "\n\tA starting number for the numbering. Default value is 0.\n", "START" },
+		{ "number-step", 'T', G_OPTION_FLAG_NONE, G_OPTION_ARG_INT64, &args->numberStep, "\n\tThe increment for the numbering. Default value is 1.\n", "INCREMENT" },
+		{ "number-base", 'B', G_OPTION_FLAG_NONE, G_OPTION_ARG_INT64, &args->numberBase, "\n\tThe base for which numerical system to use. Can be between 2 and 64 and is 10 by default.\n", "BASE" },
+		{ "number-padding", 'D', G_OPTION_FLAG_NONE, G_OPTION_ARG_INT64, &args->numberPadding, "\n\tA padding number for at least how many digits to print. Said digits are set by --number-padstr. Default value is 1 i.e. no padding.\n", "NUMBER" },
+		{ "number-padstr", 'C', G_OPTION_FLAG_NONE, G_OPTION_ARG_INT64, &args->numberPadStr, "\n\tWhat padding string to use for when --number-padding is set. Default value is \"0\".\n", "STRING" },
+		{ "number-prefix", 'P', G_OPTION_FLAG_NONE, G_OPTION_ARG_INT64, &args->numberPrefix, "\n\tPrefix the number with this string.\n", "STRING" },
+		{ "number-suffix", 'S', G_OPTION_FLAG_NONE, G_OPTION_ARG_INT64, &args->numberSuffix, "\n\tSuffix the number with this string.\n", "STRING" },
+		{ "remove-from", 'o', G_OPTION_FLAG_NONE, G_OPTION_ARG_INT64, &args->removeFrom, "\n\tStart removing characters starting from this index. This number must be lower than the one set by --remove-to.\n", "INDEX" },
+		{ "remove-to", 't', G_OPTION_FLAG_NONE, G_OPTION_ARG_INT64, &args->removeTo, "\n\tRemove characters from the index set by --remove-from until this index. This number must be greater than the one set by --remove-from.\n", "INDEX" },
+		{ "remove-first", 'f', G_OPTION_FLAG_NONE, G_OPTION_ARG_INT64, &args->removeFirst, "\n\tA number of characters to remove from the beginning of a filename.\n", "LENGTH" },
+		{ "remove-last", 'l', G_OPTION_FLAG_NONE, G_OPTION_ARG_INT64, &args->removeLast, "\n\tA number of characters to remove from the end of a filename.\n", "LENGTH" },
+		{ "rename-mode", 'm', G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING, &args->renameMode, filMsg, "MODE" },
+		{ "rename-name", 'n', G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING, &args->rename, "\n\tReplace a filename with this string. If --rename-mode is set to \"replace\" this string will be replaced by the string set with --rename-replace. Implies \"--rename-mode rename\" if --rename-mode isn't set to \"replace\".\n", "STRING" },
+		{ "rename-replace", 'r', G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING, &args->replace, "\n\tReplace the string set by --rename-name with this string. Implies \"--rename-mode replace\".\n", "STRING" },
+		{ "rename-case", 'i', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE, &args->replaceCi, "\n\tDo a case insensitive search when --rename-mode is set to \"replace\".\n", NULL },
+		{ "rename-regex", 'x', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE, &args->replaceRegex, "\n\tUse the string set by --rename-name as a regular expression when --rename-mode is set to \"replace\".\n", NULL },
 		{ NULL, '\0', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE, NULL, NULL, NULL }
 	};
 	const int nid = 15;
 	for (int i = 1; i < argc; ++i)
-		for (int j = 0; j < 7; ++j) {
+		for (int j = 0; j < 7; ++j)
 			if ((argv[i][0] == '-' && argv[i][1] == params[j + nid].short_name && !argv[i][2]) || (!strncmp(argv[i], "--", 2) && !strcmp(argv[i] + 2, params[j + nid].long_name))) {
 				args->number = true;
 				goto loopEnd;
 			}
-		}
 loopEnd:
 	g_application_add_main_option_entries(G_APPLICATION(app), params);
+	g_application_set_option_context_parameter_string(G_APPLICATION(app), "[FILE\xE2\x80\xA6]");
+	g_application_set_option_context_summary(G_APPLICATION(app), "Simple Fucking Bulk Rename: A small tool for batch renaming files.");
 }

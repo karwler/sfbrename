@@ -3,6 +3,7 @@
 
 #define _GNU_SOURCE
 #include <gtk/gtk.h>
+#include <ctype.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <strings.h>
@@ -199,6 +200,6 @@ void* memrchr(const void* s, int c, size_t n);
 void unbackslashify(char* path);
 #endif
 void addFile(Window* win, const char* file);
-int showMessageBox(Window* win, GtkMessageType type, GtkButtonsType buttons, const char* format, ...);
+GtkResponseType showMessageBox(Window* win, GtkMessageType type, GtkButtonsType buttons, const char* format, ...);
 
 #endif

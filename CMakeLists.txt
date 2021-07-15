@@ -34,7 +34,7 @@ if(CMAKE_C_COMPILER_ID STREQUAL "GNU" OR CMAKE_C_COMPILER_ID STREQUAL "Clang")
 	endif()
 	if(MINGW)
 		set(FLG_ANY "${FLG_ANY} -Wl,-subsystem,windows")
-	else()
+	elseif(CMAKE_C_COMPILER_ID STREQUAL "GNU")
 		set(FLG_ANY "${FLG_ANY} -rdynamic")
 	endif()
 
