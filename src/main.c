@@ -21,6 +21,17 @@
 #define EXECUTABLE_NAME "sfbrename.exe"
 #endif
 
+typedef struct KeyPos {
+	char* key;
+	int pos;
+} KeyPos;
+
+typedef struct KeyDirPos {
+	char* file;
+	char* dir;
+	int pos;
+} KeyDirPos;
+
 static void autoPreview(Window* win);
 
 #ifdef __MINGW32__
@@ -192,6 +203,14 @@ G_MODULE_EXPORT void clickOptions(GtkButton* button, Window* win) {
 	gtk_menu_popup_at_widget(menu, GTK_WIDGET(button), GDK_GRAVITY_SOUTH_WEST, GDK_GRAVITY_NORTH_WEST, NULL);
 }
 
+G_MODULE_EXPORT void dragEndTblFiles(GtkWidget* widget, GdkDragContext* context, Window* win) {
+	GtkTargetEntry targetEntry = { "text/uri-list", 0, 0 };
+	gtk_tree_view_enable_model_drag_source(GTK_TREE_VIEW(widget), GDK_BUTTON1_MASK, &targetEntry, 1, GDK_ACTION_MOVE);
+	gtk_tree_view_enable_model_drag_dest(GTK_TREE_VIEW(widget), &targetEntry, 1, GDK_ACTION_COPY | GDK_ACTION_MOVE);
+	if (context)
+		autoPreview(win);
+}
+
 G_MODULE_EXPORT void dropTblFiles(GtkWidget* widget, GdkDragContext* context, int x, int y, GtkSelectionData* data, uint info, uint time, Window* win) {
 	char** uris = gtk_selection_data_get_uris(data);
 	if (uris) {
@@ -206,11 +225,28 @@ G_MODULE_EXPORT void dropTblFiles(GtkWidget* widget, GdkDragContext* context, in
 #endif
 			}
 		g_strfreev(uris);
+		gtk_drag_finish(context, true, false, time);
 		autoPreview(win);
 	}
 }
 
-static void deleteTableSelection(GtkTreeView* view, Window* win) {
+G_MODULE_EXPORT gboolean buttonPressTblFiles(GtkWidget* widget, GdkEvent* event, Window* win) {
+	if (event->button.button == GDK_BUTTON_PRIMARY)
+		gtk_tree_view_set_reorderable(GTK_TREE_VIEW(widget), true);
+	return false;
+}
+
+G_MODULE_EXPORT gboolean buttonReleaseTblFiles(GtkWidget* widget, GdkEvent* event, Window* win) {
+	if (event->button.button == GDK_BUTTON_PRIMARY)
+		dragEndTblFiles(widget, NULL, win);
+	return false;
+}
+
+G_MODULE_EXPORT gboolean keyPressTblFiles(GtkWidget* widget, GdkEvent* event, Window* win) {
+	if (event->key.keyval != GDK_KEY_Delete)
+		return false;
+
+	GtkTreeView* view = GTK_TREE_VIEW(widget);
 	GtkTreeSelection* selc = gtk_tree_view_get_selection(view);
 	GtkTreeModel* model;
 	GList* rows = gtk_tree_selection_get_selected_rows(selc, &model);
@@ -234,18 +270,106 @@ static void deleteTableSelection(GtkTreeView* view, Window* win) {
 		autoPreview(win);
 	}
 	g_list_free_full(rows, (GDestroyNotify)gtk_tree_path_free);
-}
-
-G_MODULE_EXPORT gboolean buttonPressTblFiles(GtkWidget* widget, GdkEvent* event, Window* win) {
-	if (event->button.button == GDK_BUTTON_SECONDARY)
-		deleteTableSelection(GTK_TREE_VIEW(widget), win);
 	return false;
 }
 
-G_MODULE_EXPORT gboolean keyPressTblFiles(GtkWidget* widget, GdkEvent* event, Window* win) {
-	if (event->key.keyval != GDK_KEY_Delete)
-		deleteTableSelection(GTK_TREE_VIEW(widget), win);
-	return false;
+static int strcmpNameAsc(const void* a, const void* b) {
+	return strcmp(((const KeyPos*)a)->key, ((const KeyPos*)b)->key);
+}
+
+static int strcmpNameDsc(const void* a, const void* b) {
+	return -strcmp(((const KeyPos*)a)->key, ((const KeyPos*)b)->key);
+}
+
+static int strcmpDirAsc(const void* a, const void* b) {
+	const KeyDirPos* l = a;
+	const KeyDirPos* r = b;
+	int rc = strcmp(l->dir, r->dir);
+	return !rc ? strcmp(l->file, r->file) : rc;
+}
+
+static int strcmpDirDsc(const void* a, const void* b) {
+	return -strcmpDirAsc(a, b);
+}
+
+static int sortColumnInit(GtkTreeViewColumn* column, Window* win, Sorting* sort, GtkTreeViewColumn* cother, Sorting* sother, GtkTreeModel** model, GtkTreeIter* it) {
+	*sother = SORT_NONE;
+	gtk_tree_view_column_set_sort_indicator(cother, false);
+	if (*sort == SORT_DSC) {
+		*sort = SORT_NONE;
+		gtk_tree_view_column_set_sort_indicator(column, false);
+		return 0;
+	}
+	gtk_tree_view_column_set_sort_order(column, ++*sort == SORT_ASC ? GTK_SORT_ASCENDING : GTK_SORT_DESCENDING);
+	gtk_tree_view_column_set_sort_indicator(column, true);
+
+	*model = gtk_tree_view_get_model(win->tblFiles);
+	return gtk_tree_model_get_iter_first(*model, it) ? gtk_tree_model_iter_n_children(*model, NULL) : 0;
+}
+
+static void sortColumnFinish(Window* win, int* order, void* keys) {
+	gtk_list_store_reorder(win->lsFiles, order);
+	free(order);
+	free(keys);
+	autoPreview(win);
+}
+
+G_MODULE_EXPORT void clickColumnTblFilesName(GtkTreeViewColumn* treeviewcolumn, Window* win) {
+	GtkTreeModel* model;
+	GtkTreeIter it;
+	int num = sortColumnInit(treeviewcolumn, win, &win->nameSort, win->tblFilesDirectory, &win->directorySort, &model, &it);
+	if (num <= 0)
+		return;
+
+	KeyPos* keys = malloc(num * sizeof(KeyPos));
+	int* order = malloc(num * sizeof(int));
+	int i = 0;
+	do {
+		char* name;
+		gtk_tree_model_get(model, &it, FCOL_OLD_NAME, &name, FCOL_INVALID);
+		keys[i].pos = i;
+		keys[i++].key = g_utf8_collate_key_for_filename(name, -1);
+		g_free(name);
+	} while (gtk_tree_model_iter_next(model, &it));
+	num = i;
+	qsort(keys, num, sizeof(KeyPos), win->nameSort == SORT_ASC ? strcmpNameAsc : strcmpNameDsc);
+
+	for (i = 0; i < num; ++i) {
+		order[i] = keys[i].pos;
+		g_free(keys[i].key);
+	}
+	sortColumnFinish(win, order, keys);
+}
+
+G_MODULE_EXPORT void clickColumnTblFilesDirectory(GtkTreeViewColumn* treeviewcolumn, Window* win) {
+	GtkTreeModel* model;
+	GtkTreeIter it;
+	int num = sortColumnInit(treeviewcolumn, win, &win->directorySort, win->tblFilesName, &win->nameSort, &model, &it);
+	if (num <= 0)
+		return;
+
+	KeyDirPos* keys = malloc(num * sizeof(KeyDirPos));
+	int* order = malloc(num * sizeof(int));
+	int i = 0;
+	do {
+		char* file;
+		char* dir;
+		gtk_tree_model_get(model, &it, FCOL_OLD_NAME, &file, FCOL_DIRECTORY, &dir, FCOL_INVALID);
+		keys[i].pos = i;
+		keys[i].file = g_utf8_collate_key_for_filename(file, -1);
+		keys[i++].dir = g_utf8_collate_key_for_filename(dir, -1);
+		g_free(file);
+		g_free(dir);
+	} while (gtk_tree_model_iter_next(model, &it));
+	num = i;
+	qsort(keys, num, sizeof(KeyDirPos), win->directorySort == SORT_ASC ? strcmpDirAsc : strcmpDirDsc);
+
+	for (i = 0; i < num; ++i) {
+		order[i] = keys[i].pos;
+		g_free(keys[i].file);
+		g_free(keys[i].dir);
+	}
+	sortColumnFinish(win, order, keys);
 }
 
 G_MODULE_EXPORT void valueChangeEtGeneric(GtkEditable* editable, Window* win) {
@@ -433,6 +557,8 @@ static void initWindow(GtkApplication* app, Window* win) {
 	win->window = GTK_WINDOW(gtk_builder_get_object(builder, "window"));
 	win->tblFiles = GTK_TREE_VIEW(gtk_builder_get_object(builder, "tblFiles"));
 	win->lsFiles = GTK_LIST_STORE(gtk_builder_get_object(builder, "lsFiles"));
+	win->tblFilesName = GTK_TREE_VIEW_COLUMN(gtk_builder_get_object(builder, "tblFilesName"));
+	win->tblFilesDirectory = GTK_TREE_VIEW_COLUMN(gtk_builder_get_object(builder, "tblFilesDirectory"));
 	win->cmbExtensionMode = GTK_COMBO_BOX_TEXT(gtk_builder_get_object(builder, "cmbExtensionMode"));
 	win->etExtension = GTK_ENTRY(gtk_builder_get_object(builder, "etExtension"));
 	win->etExtensionReplace = GTK_ENTRY(gtk_builder_get_object(builder, "etExtensionReplace"));
@@ -465,6 +591,8 @@ static void initWindow(GtkApplication* app, Window* win) {
 	win->etDestination = GTK_ENTRY(gtk_builder_get_object(builder, "etDestination"));
 	win->cbDestinationForward = GTK_CHECK_BUTTON(gtk_builder_get_object(builder, "cbDestinationForward"));
 
+	dragEndTblFiles(GTK_WIDGET(win->tblFiles), NULL, win);
+
 	GtkLabel* numberLabel = GTK_LABEL(gtk_bin_get_child(GTK_BIN(win->cbNumber)));
 	PangoAttrList* attrs = gtk_label_get_attributes(numberLabel);
 	if (!attrs)
@@ -472,10 +600,6 @@ static void initWindow(GtkApplication* app, Window* win) {
 	pango_attr_list_change(attrs, pango_attr_weight_new(PANGO_WEIGHT_BOLD));
 	gtk_label_set_attributes(numberLabel, attrs);
 	pango_attr_list_unref(attrs);
-
-	GtkTargetEntry target = { "text/uri-list", 0, 0 };
-	gtk_tree_view_enable_model_drag_dest(win->tblFiles, &target, 1, GDK_ACTION_COPY | GDK_ACTION_MOVE);
-	gtk_tree_selection_set_mode(gtk_tree_view_get_selection(win->tblFiles), GTK_SELECTION_MULTIPLE);
 
 	processArguments(win);
 	if (args->extensionMode) {

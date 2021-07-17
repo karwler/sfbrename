@@ -43,6 +43,12 @@ typedef enum {
 	DESTINATION_LINK
 } DestinationMode;
 
+typedef enum Sorting {
+	SORT_NONE,
+	SORT_ASC,
+	SORT_DSC
+} Sorting;
+
 typedef struct Arguments {
 	GFile** files;
 	gchar* extensionMode;
@@ -148,6 +154,8 @@ typedef struct Window {
 	GtkWindow* window;
 	GtkTreeView* tblFiles;
 	GtkListStore* lsFiles;
+	GtkTreeViewColumn* tblFilesName;
+	GtkTreeViewColumn* tblFilesDirectory;
 
 	GtkComboBoxText* cmbExtensionMode;
 	GtkEntry* etExtension;
@@ -186,6 +194,8 @@ typedef struct Window {
 	GtkEntry* etDestination;
 	GtkCheckButton* cbDestinationForward;
 
+	Sorting nameSort;
+	Sorting directorySort;
 	bool autoPreview;
 } Window;
 

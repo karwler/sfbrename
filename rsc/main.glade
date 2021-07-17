@@ -1047,17 +1047,22 @@ Use a negative index to set one relative the the back</property>
                 <property name="visible">True</property>
                 <property name="can-focus">True</property>
                 <property name="model">lsFiles</property>
-                <property name="reorderable">True</property>
+                <property name="search-column">1</property>
                 <property name="fixed-height-mode">True</property>
+                <property name="show-expanders">False</property>
                 <property name="enable-grid-lines">both</property>
                 <signal name="button-press-event" handler="buttonPressTblFiles" swapped="no"/>
+                <signal name="button-release-event" handler="buttonReleaseTblFiles" swapped="no"/>
                 <signal name="drag-data-received" handler="dropTblFiles" swapped="no"/>
+                <signal name="drag-end" handler="dragEndTblFiles" swapped="no"/>
                 <signal name="key-press-event" handler="keyPressTblFiles" swapped="no"/>
                 <child internal-child="selection">
-                  <object class="GtkTreeSelection"/>
+                  <object class="GtkTreeSelection">
+                    <property name="mode">multiple</property>
+                  </object>
                 </child>
                 <child>
-                  <object class="GtkTreeViewColumn">
+                  <object class="GtkTreeViewColumn" id="tblFilesName">
                     <property name="resizable">True</property>
                     <property name="sizing">fixed</property>
                     <property name="fixed-width">100</property>
@@ -1065,9 +1070,7 @@ Use a negative index to set one relative the the back</property>
                     <property name="title" translatable="yes">Name</property>
                     <property name="expand">True</property>
                     <property name="clickable">True</property>
-                    <property name="reorderable">True</property>
-                    <property name="sort-indicator">True</property>
-                    <property name="sort-column-id">0</property>
+                    <signal name="clicked" handler="clickColumnTblFilesName" swapped="no"/>
                     <child>
                       <object class="GtkCellRendererText"/>
                       <attributes>
@@ -1093,7 +1096,7 @@ Use a negative index to set one relative the the back</property>
                   </object>
                 </child>
                 <child>
-                  <object class="GtkTreeViewColumn">
+                  <object class="GtkTreeViewColumn" id="tblFilesDirectory">
                     <property name="resizable">True</property>
                     <property name="sizing">fixed</property>
                     <property name="fixed-width">100</property>
@@ -1101,9 +1104,7 @@ Use a negative index to set one relative the the back</property>
                     <property name="title" translatable="yes">Directory</property>
                     <property name="expand">True</property>
                     <property name="clickable">True</property>
-                    <property name="reorderable">True</property>
-                    <property name="sort-indicator">True</property>
-                    <property name="sort-column-id">2</property>
+                    <signal name="clicked" handler="clickColumnTblFilesDirectory" swapped="no"/>
                     <child>
                       <object class="GtkCellRendererText"/>
                       <attributes>
