@@ -18,6 +18,22 @@ endif()
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GTK3 REQUIRED gtk+-3.0)
 
+function(mingwify_paths DIRS DIRS_OUT)
+	foreach(IDIR IN LISTS DIRS)
+		string(SUBSTRING "${IDIR}" 0 1 IDIR_DRIVE)
+		string(REGEX REPLACE "^${IDIR_DRIVE}:" "/${IDIR_DRIVE}" IDIR "${IDIR}")
+		list(APPEND DIRS_NEW "${IDIR}")
+	endforeach()
+	set(${DIRS_OUT} ${DIRS_NEW} PARENT_SCOPE)
+endfunction()
+
+if(MINGW)
+	mingwify_paths("${GTK3_INCLUDE_DIRS}" DIRS_OUT)
+	set(GTK3_INCLUDE_DIRS ${DIRS_OUT})
+	mingwify_paths("${GTK3_LIBRARY_DIRS}" DIRS_OUT)
+	set(GTK3_LIBRARY_DIRS ${DIRS_OUT})
+endif()
+
 include_directories(${GTK3_INCLUDE_DIRS})
 link_directories(${GTK3_LIBRARY_DIRS})
 add_definitions(${GTK3_CFLAGS_OTHER})
@@ -89,8 +105,11 @@ if(MINGW)
 	execute_process(COMMAND where gdbus OUTPUT_VARIABLE GDBUS_LOC)
 	string(REGEX REPLACE "\r?\n" ";" GDBUS_LOC "${GDBUS_LOC}")
 	list(GET GDBUS_LOC 0 GDBUS)
+	string(SUBSTRING "${GDBUS}" 0 1 MINGW_DRIVE)
+	string(REGEX REPLACE "^${MINGW_DRIVE}:" "/${MINGW_DRIVE}" GDBUS "${GDBUS}")	# the copy command absolutely shits itself if this path isn't in msys format
+	string(REPLACE "\\" "/" GDBUS "${GDBUS}")
 
-	string(REGEX REPLACE "[\\/]" ";" MINGW_LOC "${GDBUS}")
+	string(REPLACE "/" ";" MINGW_LOC "${GDBUS}")
 	list(LENGTH MINGW_LOC MINGW_LEN)
 	math(EXPR MINGW_LEN "${MINGW_LEN} - 2")
 	list(SUBLIST MINGW_LOC 0 ${MINGW_LEN} MINGW_LOC)
@@ -106,10 +125,6 @@ if(MINGW)
 	list(SUBLIST PIXBUF_DIR ${PIXBUF_POS} 3 PIXBUF_DIR)
 	string(REPLACE ";" "/" PIXBUF_DIR "${PIXBUF_DIR}")
 	set(PIXBUF_DIR "${PBOUT_DIR}/${PIXBUF_DIR}")
-
-	string(SUBSTRING "${GDBUS}" 0 1 MINGW_DRIVE)
-	string(REGEX REPLACE "^${MINGW_DRIVE}:" "/${MINGW_DRIVE}" GDBUS "${GDBUS}")	# the copy command absolutely shits itself if this path isn't in msys format
-	string(REPLACE "\\" "/" GDBUS "${GDBUS}")
 
 	add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
 						COMMAND ldd "${EXECUTABLE_OUTPUT_PATH}/${PROJECT_NAME}.exe" | grep "'\\/mingw.*\\.dll'" -o | xargs -I{} cp \"{}\" "${EXECUTABLE_OUTPUT_PATH}"
@@ -128,6 +143,8 @@ find_program(SED "sed")
 if(SED)
 	add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
 		                COMMAND "${CMAKE_SOURCE_DIR}/rsc/spacerm.sh" "${DATA_DIR}/main.glade")
+else()
+	message(WARNING "Can't reduce the size of the glade file: Failed to find sed")
 endif()
 find_program(GZIP "gzip")
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
@@ -138,6 +155,8 @@ if((CMAKE_CXX_COMPILER_ID MATCHES "Clang") AND (NOT CMAKE_BUILD_TYPE STREQUAL "D
 	if(STRIPPER)
 		add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
 			                COMMAND "${STRIPPER}" -s "${EXECUTABLE_OUTPUT_PATH}/${PROJECT_NAME}")
+	else()
+		message(WARNING "Can't strip the executable: Failed to find strip")
 	endif()
 endif()
 
@@ -151,6 +170,8 @@ if(APPIMAGE)
 		add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
 			                COMMAND "${APPIMAGETOOL}" "${PBOUT_DIR}"
 							COMMAND "${CMAKE_COMMAND}" -E rename "${CMAKE_BINARY_DIR}/${PROJECT_NAME}-*.AppImage" "${CMAKE_BINARY_DIR}/${PROJECT_NAME}.AppImage")
+	else()
+		message(WARNING "Can't create an AppImage: Failed to find appimagetool")
 	endif()
 else()
 	add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD

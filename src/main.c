@@ -17,6 +17,7 @@
 #define INFLATED_SIZE 40000
 #define INFLATE_INCREMENT 10000
 #define FILE_URI_PREFIX "file://"
+#define LINE_BREAK_CHARS "\r\n"
 #ifdef __MINGW32__
 #define EXECUTABLE_NAME "sfbrename.exe"
 #endif
@@ -211,20 +212,26 @@ G_MODULE_EXPORT void dragEndTblFiles(GtkWidget* widget, GdkDragContext* context,
 		autoPreview(win);
 }
 
-G_MODULE_EXPORT void dropTblFiles(GtkWidget* widget, GdkDragContext* context, int x, int y, GtkSelectionData* data, uint info, uint time, Window* win) {
-	char** uris = gtk_selection_data_get_uris(data);
-	if (uris) {
-		size_t flen = strlen(FILE_URI_PREFIX);
-		for (int i = 0; uris[i]; ++i)
-			if (!strncmp(uris[i], FILE_URI_PREFIX, flen)) {
+static bool addFileUris(Window* win, char** uris) {
+	if (!uris)
+		return false;
+
+	size_t flen = strlen(FILE_URI_PREFIX);
+	for (int i = 0; uris[i]; ++i)
+		if (!strncmp(uris[i], FILE_URI_PREFIX, flen)) {
 #ifdef __MINGW32__
-				const char* file = uris[i] + flen;
-				addFile(win, file + (file[0] == '/' && isalnum(file[1]) && file[2] == ':' && file[3] == '/'));
+			const char* file = uris[i] + flen;
+			addFile(win, file + (file[0] == '/' && isalnum(file[1]) && file[2] == ':' && file[3] == '/'));
 #else
-				addFile(win, uris[i] + flen);
+			addFile(win, uris[i] + flen);
 #endif
-			}
-		g_strfreev(uris);
+		}
+	g_strfreev(uris);
+	return true;
+}
+
+G_MODULE_EXPORT void dropTblFiles(GtkWidget* widget, GdkDragContext* context, int x, int y, GtkSelectionData* data, uint info, uint time, Window* win) {
+	if (addFileUris(win, gtk_selection_data_get_uris(data))) {
 		gtk_drag_finish(context, true, false, time);
 		autoPreview(win);
 	}
@@ -242,34 +249,134 @@ G_MODULE_EXPORT gboolean buttonReleaseTblFiles(GtkWidget* widget, GdkEvent* even
 	return false;
 }
 
-G_MODULE_EXPORT gboolean keyPressTblFiles(GtkWidget* widget, GdkEvent* event, Window* win) {
-	if (event->key.keyval != GDK_KEY_Delete)
+static void appendTblFilesTextName(char** text, size_t* tlen, size_t *tmax, const char* name) {
+	size_t len = strlen(name);
+	if (*tlen + len >= *tmax) {
+		*tmax += PATH_MAX;
+		*text = realloc(*text, *tmax * sizeof(char));
+	}
+	memcpy(*text + *tlen, name, len * sizeof(char));
+	*tlen += len;
+}
+
+static bool setTblFilesClipboardText(GtkTreeModel* model, GtkTreeRowReference** refs, uint cnt) {
+	if (!refs)
 		return false;
 
-	GtkTreeView* view = GTK_TREE_VIEW(widget);
-	GtkTreeSelection* selc = gtk_tree_view_get_selection(view);
-	GtkTreeModel* model;
-	GList* rows = gtk_tree_selection_get_selected_rows(selc, &model);
-	uint rnum = g_list_length(rows);
-	if (rnum) {
-		GtkTreeRowReference** refs = malloc(rnum * sizeof(GtkTreeRowReference*));
-		uint cnt = 0;
-		for (GList* it = rows; it; it = it->next) {
-			refs[cnt] = gtk_tree_row_reference_new(model, it->data);
-			if (refs[cnt])
-				++cnt;
+	size_t tlen = 0, tmax = PATH_MAX;
+	char* text = malloc(tmax * sizeof(char));
+	for (uint i = 0; i < cnt; ++i) {
+		GtkTreeIter iter;
+		if (gtk_tree_model_get_iter(model, &iter, gtk_tree_row_reference_get_path(refs[i]))) {
+			char* name;
+			char* dirc;
+			gtk_tree_model_get(model, &iter, FCOL_OLD_NAME, &name, FCOL_DIRECTORY, &dirc, FCOL_INVALID);
+			appendTblFilesTextName(&text, &tlen, &tmax, dirc);
+			appendTblFilesTextName(&text, &tlen, &tmax, name);
+#ifdef __MINGW32__
+			appendTblFilesTextName(&text, &tlen, &tmax, LINE_BREAK_CHARS);
+#else
+			appendTblFilesTextName(&text, &tlen, &tmax, "\n");
+#endif
+			g_free(dirc);
+			g_free(name);
 		}
+	}
+	text[tlen] = '\0';
+	gtk_clipboard_set_text(gtk_clipboard_get(GDK_SELECTION_CLIPBOARD), text, tlen);
+	free(text);
+	return true;
+}
 
-		for (uint i = 0; i < cnt; ++i) {
-			GtkTreeIter iter;
-			if (gtk_tree_model_get_iter(model, &iter, gtk_tree_row_reference_get_path(refs[i])))
-				gtk_list_store_remove(win->lsFiles, &iter);
-			gtk_tree_row_reference_free(refs[i]);
-		}
-		free(refs);
-		autoPreview(win);
+static GtkTreeRowReference** getTreeViewSelectedRowRefs(GtkTreeView* view, GtkTreeModel** model, uint* cnt) {
+	GtkTreeSelection* selc = gtk_tree_view_get_selection(view);
+	GList* rows = gtk_tree_selection_get_selected_rows(selc, model);
+	uint rnum = g_list_length(rows);
+	if (!rnum) {
+		g_list_free_full(rows, (GDestroyNotify)gtk_tree_path_free);
+		return NULL;
+	}
+
+	GtkTreeRowReference** refs = malloc(rnum * sizeof(GtkTreeRowReference*));
+	*cnt = 0;
+	for (GList* it = rows; it; it = it->next) {
+		refs[*cnt] = gtk_tree_row_reference_new(*model, it->data);
+		if (refs[*cnt])
+			++*cnt;
 	}
 	g_list_free_full(rows, (GDestroyNotify)gtk_tree_path_free);
+	return refs;
+}
+
+static void removeTblFilesRowRefs(Window* win, GtkTreeModel* model, GtkTreeRowReference** refs, uint cnt) {
+	if (!refs)
+		return;
+
+	for (uint i = 0; i < cnt; ++i) {
+		GtkTreeIter iter;
+		if (gtk_tree_model_get_iter(model, &iter, gtk_tree_row_reference_get_path(refs[i])))
+			gtk_list_store_remove(win->lsFiles, &iter);
+		gtk_tree_row_reference_free(refs[i]);
+	}
+	free(refs);
+	autoPreview(win);
+}
+
+G_MODULE_EXPORT gboolean keyPressTblFiles(GtkWidget* widget, GdkEvent* event, Window* win) {
+	switch (event->key.keyval) {
+	case GDK_KEY_x:
+		if (event->key.state & GDK_CONTROL_MASK) {
+			GtkTreeModel* model;
+			uint cnt;
+			GtkTreeRowReference** refs = getTreeViewSelectedRowRefs(GTK_TREE_VIEW(widget), &model, &cnt);
+			setTblFilesClipboardText(model, refs, cnt);
+			removeTblFilesRowRefs(win, model, refs, cnt);
+		}
+		break;
+	case GDK_KEY_c:
+		if (event->key.state & GDK_CONTROL_MASK) {
+			GtkTreeModel* model;
+			uint cnt;
+			GtkTreeRowReference** refs = getTreeViewSelectedRowRefs(GTK_TREE_VIEW(widget), &model, &cnt);
+			if (setTblFilesClipboardText(model, refs, cnt)) {
+				for (uint i = 0; i < cnt; ++i)
+					gtk_tree_row_reference_free(refs[i]);
+				free(refs);
+				autoPreview(win);
+			}
+		}
+		break;
+	case GDK_KEY_v:
+		if (event->key.state & GDK_CONTROL_MASK) {
+			GtkClipboard* clipboard = gtk_clipboard_get(GDK_SELECTION_CLIPBOARD);
+			char** uris = gtk_clipboard_wait_for_uris(clipboard);
+			if (uris) {
+				if (addFileUris(win, uris))
+					autoPreview(win);
+			} else {
+				char* text = gtk_clipboard_wait_for_text(clipboard);
+				if (text) {
+					for (char* pos = text + strspn(text, LINE_BREAK_CHARS); *pos; pos += strspn(pos, LINE_BREAK_CHARS)) {
+						size_t i = strcspn(pos, LINE_BREAK_CHARS);
+						bool more = pos[i] != '\0';
+						pos[i] = '\0';
+						addFile(win, pos);
+						pos += i + more;
+					}
+					g_free(text);
+					autoPreview(win);
+				}
+			}
+		}
+		break;
+	case GDK_KEY_Delete:
+		if (!event->key.state) {
+			GtkTreeModel* model;
+			uint cnt;
+			GtkTreeRowReference** refs = getTreeViewSelectedRowRefs(GTK_TREE_VIEW(widget), &model, &cnt);
+			removeTblFilesRowRefs(win, model, refs, cnt);
+		}
+	}
 	return false;
 }
 

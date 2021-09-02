@@ -141,6 +141,11 @@
                             <property name="tooltip-text" translatable="yes">New extension name or what to replace</property>
                             <property name="max-length">4095</property>
                             <signal name="changed" handler="valueChangeEtExtension" swapped="no"/>
+                            <child internal-child="accessible">
+                              <object class="AtkObject" id="etExtension-atkobject">
+                                <property name="AtkObject::accessible-name" translatable="yes">extension rename</property>
+                              </object>
+                            </child>
                           </object>
                           <packing>
                             <property name="left-attach">1</property>
@@ -163,6 +168,11 @@
                               <item translatable="yes">Reverse</item>
                             </items>
                             <signal name="changed" handler="valueChangeCmbGeneric" swapped="no"/>
+                            <child internal-child="accessible">
+                              <object class="AtkObject" id="cmbExtensionMode-atkobject">
+                                <property name="AtkObject::accessible-name" translatable="yes">extension mode</property>
+                              </object>
+                            </child>
                           </object>
                           <packing>
                             <property name="left-attach">0</property>
@@ -189,6 +199,11 @@
                             <property name="tooltip-text" translatable="yes">Replace the above string with this</property>
                             <property name="max-length">4095</property>
                             <signal name="changed" handler="valueChangeEtExtensionReplace" swapped="no"/>
+                            <child internal-child="accessible">
+                              <object class="AtkObject" id="etExtensionReplace-atkobject">
+                                <property name="AtkObject::accessible-name" translatable="yes">extension replace</property>
+                              </object>
+                            </child>
                           </object>
                           <packing>
                             <property name="left-attach">1</property>
@@ -249,6 +264,11 @@ Set to a negative value to use all dots, excluding an initial dot</property>
                             <property name="adjustment">sbExtensionElementsAdj</property>
                             <property name="numeric">True</property>
                             <signal name="value-changed" handler="valueChangeSbGeneric" swapped="no"/>
+                            <child internal-child="accessible">
+                              <object class="AtkObject" id="sbExtensionElements-atkobject">
+                                <property name="AtkObject::accessible-name" translatable="yes">extension elements</property>
+                              </object>
+                            </child>
                           </object>
                           <packing>
                             <property name="left-attach">1</property>
@@ -296,6 +316,11 @@ Set to a negative value to use all dots, excluding an initial dot</property>
                             <property name="tooltip-text" translatable="yes">New filename or what to replace</property>
                             <property name="max-length">4095</property>
                             <signal name="changed" handler="valueChangeEtRename" swapped="no"/>
+                            <child internal-child="accessible">
+                              <object class="AtkObject" id="etRename-atkobject">
+                                <property name="AtkObject::accessible-name" translatable="yes">rename</property>
+                              </object>
+                            </child>
                           </object>
                           <packing>
                             <property name="left-attach">1</property>
@@ -318,6 +343,11 @@ Set to a negative value to use all dots, excluding an initial dot</property>
                               <item translatable="yes">Reverse</item>
                             </items>
                             <signal name="changed" handler="valueChangeCmbGeneric" swapped="no"/>
+                            <child internal-child="accessible">
+                              <object class="AtkObject" id="cmbRenameMode-atkobject">
+                                <property name="AtkObject::accessible-name" translatable="yes">rename mode</property>
+                              </object>
+                            </child>
                           </object>
                           <packing>
                             <property name="left-attach">0</property>
@@ -344,6 +374,11 @@ Set to a negative value to use all dots, excluding an initial dot</property>
                             <property name="tooltip-text" translatable="yes">Replace the above string with this</property>
                             <property name="max-length">4095</property>
                             <signal name="changed" handler="valueChangeEtReplace" swapped="no"/>
+                            <child internal-child="accessible">
+                              <object class="AtkObject" id="etReplace-atkobject">
+                                <property name="AtkObject::accessible-name" translatable="yes">replace</property>
+                              </object>
+                            </child>
                           </object>
                           <packing>
                             <property name="left-attach">1</property>
@@ -445,6 +480,11 @@ Set to a negative value to use all dots, excluding an initial dot</property>
                             <property name="adjustment">removeLastAdj</property>
                             <property name="numeric">True</property>
                             <signal name="value-changed" handler="valueChangeSbGeneric" swapped="no"/>
+                            <child internal-child="accessible">
+                              <object class="AtkObject" id="sbRemoveLast-atkobject">
+                                <property name="AtkObject::accessible-name" translatable="yes">remove last</property>
+                              </object>
+                            </child>
                           </object>
                           <packing>
                             <property name="left-attach">3</property>
@@ -472,6 +512,11 @@ Set to a negative value to use all dots, excluding an initial dot</property>
                             <property name="adjustment">removeFromAdj</property>
                             <property name="numeric">True</property>
                             <signal name="value-changed" handler="valueChangeSbRemoveFrom" swapped="no"/>
+                            <child internal-child="accessible">
+                              <object class="AtkObject" id="sbRemoveFrom-atkobject">
+                                <property name="AtkObject::accessible-name" translatable="yes">remove from</property>
+                              </object>
+                            </child>
                           </object>
                           <packing>
                             <property name="left-attach">1</property>
@@ -498,6 +543,11 @@ Set to a negative value to use all dots, excluding an initial dot</property>
                             <property name="adjustment">removeToAdj</property>
                             <property name="numeric">True</property>
                             <signal name="value-changed" handler="valueChangeSbRemoveTo" swapped="no"/>
+                            <child internal-child="accessible">
+                              <object class="AtkObject" id="sbRemoveTo-atkobject">
+                                <property name="AtkObject::accessible-name" translatable="yes">remove to</property>
+                              </object>
+                            </child>
                           </object>
                           <packing>
                             <property name="left-attach">3</property>
@@ -513,6 +563,11 @@ Set to a negative value to use all dots, excluding an initial dot</property>
                             <property name="adjustment">removeFirstAdj</property>
                             <property name="numeric">True</property>
                             <signal name="value-changed" handler="valueChangeSbGeneric" swapped="no"/>
+                            <child internal-child="accessible">
+                              <object class="AtkObject" id="sbRemoveFirst-atkobject">
+                                <property name="AtkObject::accessible-name" translatable="yes">remove first</property>
+                              </object>
+                            </child>
                           </object>
                           <packing>
                             <property name="left-attach">1</property>
@@ -569,6 +624,11 @@ Set to a negative value to use all dots, excluding an initial dot</property>
                             <property name="tooltip-text" translatable="yes">Prepend a string</property>
                             <property name="max-length">4095</property>
                             <signal name="changed" handler="valueChangeEtGeneric" swapped="no"/>
+                            <child internal-child="accessible">
+                              <object class="AtkObject" id="etAddPrefix-atkobject">
+                                <property name="AtkObject::accessible-name" translatable="yes">add prefix</property>
+                              </object>
+                            </child>
                           </object>
                           <packing>
                             <property name="left-attach">1</property>
@@ -595,6 +655,11 @@ Set to a negative value to use all dots, excluding an initial dot</property>
                             <property name="tooltip-text" translatable="yes">Append a string</property>
                             <property name="max-length">4095</property>
                             <signal name="changed" handler="valueChangeEtGeneric" swapped="no"/>
+                            <child internal-child="accessible">
+                              <object class="AtkObject" id="etAddSuffix-atkobject">
+                                <property name="AtkObject::accessible-name" translatable="yes">add suffix</property>
+                              </object>
+                            </child>
                           </object>
                           <packing>
                             <property name="left-attach">3</property>
@@ -621,6 +686,11 @@ Set to a negative value to use all dots, excluding an initial dot</property>
                             <property name="tooltip-text" translatable="yes">Insert a string at the index set in the field to the right</property>
                             <property name="max-length">4095</property>
                             <signal name="changed" handler="valueChangeEtGeneric" swapped="no"/>
+                            <child internal-child="accessible">
+                              <object class="AtkObject" id="etAddInsert-atkobject">
+                                <property name="AtkObject::accessible-name" translatable="yes">insert</property>
+                              </object>
+                            </child>
                           </object>
                           <packing>
                             <property name="left-attach">1</property>
@@ -648,6 +718,11 @@ Use a negative index to set one relative the the back</property>
                             <property name="adjustment">addAtAdj</property>
                             <property name="numeric">True</property>
                             <signal name="value-changed" handler="valueChangeSbGeneric" swapped="no"/>
+                            <child internal-child="accessible">
+                              <object class="AtkObject" id="sbAddAt-atkobject">
+                                <property name="AtkObject::accessible-name" translatable="yes">insert at</property>
+                              </object>
+                            </child>
                           </object>
                           <packing>
                             <property name="left-attach">3</property>
@@ -751,6 +826,11 @@ Use a negative index to set one relative the the back</property>
                             <property name="adjustment">numberPaddingAdj</property>
                             <property name="numeric">True</property>
                             <signal name="value-changed" handler="valueChangeSbNumber" swapped="no"/>
+                            <child internal-child="accessible">
+                              <object class="AtkObject" id="sbNumberPadding-atkobject">
+                                <property name="AtkObject::accessible-name" translatable="yes">number padding digits</property>
+                              </object>
+                            </child>
                           </object>
                           <packing>
                             <property name="left-attach">1</property>
@@ -765,6 +845,11 @@ Use a negative index to set one relative the the back</property>
                             <property name="adjustment">numberStartAdj</property>
                             <property name="numeric">True</property>
                             <signal name="value-changed" handler="valueChangeSbNumber" swapped="no"/>
+                            <child internal-child="accessible">
+                              <object class="AtkObject" id="sbNumberStart-atkobject">
+                                <property name="AtkObject::accessible-name" translatable="yes">number start</property>
+                              </object>
+                            </child>
                           </object>
                           <packing>
                             <property name="left-attach">1</property>
@@ -779,6 +864,11 @@ Use a negative index to set one relative the the back</property>
                             <property name="adjustment">numberStepAdj</property>
                             <property name="numeric">True</property>
                             <signal name="value-changed" handler="valueChangeSbNumber" swapped="no"/>
+                            <child internal-child="accessible">
+                              <object class="AtkObject" id="sbNumberStep-atkobject">
+                                <property name="AtkObject::accessible-name" translatable="yes">number step</property>
+                              </object>
+                            </child>
                           </object>
                           <packing>
                             <property name="left-attach">3</property>
@@ -793,6 +883,11 @@ Use a negative index to set one relative the the back</property>
                             <property name="max-length">4095</property>
                             <property name="text" translatable="yes">0</property>
                             <signal name="changed" handler="valueChangeEtNumber" swapped="no"/>
+                            <child internal-child="accessible">
+                              <object class="AtkObject" id="etNumberPadding-atkobject">
+                                <property name="AtkObject::accessible-name" translatable="yes">number padding string</property>
+                              </object>
+                            </child>
                           </object>
                           <packing>
                             <property name="left-attach">3</property>
@@ -808,6 +903,11 @@ Use a negative index to set one relative the the back</property>
                             <property name="adjustment">numberLocationAdj</property>
                             <property name="numeric">True</property>
                             <signal name="value-changed" handler="valueChangeSbNumber" swapped="no"/>
+                            <child internal-child="accessible">
+                              <object class="AtkObject" id="sbNumberLocation-atkobject">
+                                <property name="AtkObject::accessible-name" translatable="yes">number location</property>
+                              </object>
+                            </child>
                           </object>
                           <packing>
                             <property name="left-attach">1</property>
@@ -834,6 +934,11 @@ Use a negative index to set one relative the the back</property>
                             <property name="adjustment">numberBaseAdj</property>
                             <property name="numeric">True</property>
                             <signal name="value-changed" handler="valueChangeSbNumber" swapped="no"/>
+                            <child internal-child="accessible">
+                              <object class="AtkObject" id="sbNumberBase-atkobject">
+                                <property name="AtkObject::accessible-name" translatable="yes">number base</property>
+                              </object>
+                            </child>
                           </object>
                           <packing>
                             <property name="left-attach">3</property>
@@ -871,6 +976,11 @@ Use a negative index to set one relative the the back</property>
                             <property name="tooltip-text" translatable="yes">Prepend a string to the number</property>
                             <property name="max-length">4095</property>
                             <signal name="changed" handler="valueChangeEtNumber" swapped="no"/>
+                            <child internal-child="accessible">
+                              <object class="AtkObject" id="etNumberPrefix-atkobject">
+                                <property name="AtkObject::accessible-name" translatable="yes">number prefix</property>
+                              </object>
+                            </child>
                           </object>
                           <packing>
                             <property name="left-attach">1</property>
@@ -884,6 +994,11 @@ Use a negative index to set one relative the the back</property>
                             <property name="tooltip-text" translatable="yes">Append a string to the number</property>
                             <property name="max-length">4095</property>
                             <signal name="changed" handler="valueChangeEtNumber" swapped="no"/>
+                            <child internal-child="accessible">
+                              <object class="AtkObject" id="etNumberSuffix-atkobject">
+                                <property name="AtkObject::accessible-name" translatable="yes">number suffix</property>
+                              </object>
+                            </child>
                           </object>
                           <packing>
                             <property name="left-attach">3</property>
@@ -933,6 +1048,11 @@ Use a negative index to set one relative the the back</property>
                               <item translatable="yes">Copy</item>
                               <item translatable="yes">Link</item>
                             </items>
+                            <child internal-child="accessible">
+                              <object class="AtkObject" id="cmbDestinationMode-atkobject">
+                                <property name="AtkObject::accessible-name" translatable="yes">destination mode</property>
+                              </object>
+                            </child>
                           </object>
                           <packing>
                             <property name="left-attach">0</property>
@@ -946,6 +1066,11 @@ Use a negative index to set one relative the the back</property>
                             <property name="tooltip-text" translatable="yes">Destination directory for when not renaming in place</property>
                             <property name="max-length">4095</property>
                             <signal name="changed" handler="valueChangeEtDestination" swapped="no"/>
+                            <child internal-child="accessible">
+                              <object class="AtkObject" id="etDestination-atkobject">
+                                <property name="AtkObject::accessible-name" translatable="yes">destination directory</property>
+                              </object>
+                            </child>
                           </object>
                           <packing>
                             <property name="left-attach">1</property>
@@ -961,6 +1086,11 @@ Use a negative index to set one relative the the back</property>
                             <property name="receives-default">True</property>
                             <property name="tooltip-text" translatable="yes">Destination directory for when not renaming in place</property>
                             <property name="halign">start</property>
+                            <child internal-child="accessible">
+                              <object class="AtkObject" id="pbDestination-atkobject">
+                                <property name="AtkObject::accessible-name" translatable="yes">destination search</property>
+                              </object>
+                            </child>
                           </object>
                           <packing>
                             <property name="left-attach">4</property>
@@ -1080,7 +1210,7 @@ Use a negative index to set one relative the the back</property>
                   </object>
                 </child>
                 <child>
-                  <object class="GtkTreeViewColumn">
+                  <object class="GtkTreeViewColumn" id="tblFilesNewName">
                     <property name="resizable">True</property>
                     <property name="sizing">fixed</property>
                     <property name="fixed-width">100</property>
@@ -1111,6 +1241,11 @@ Use a negative index to set one relative the the back</property>
                         <attribute name="text">2</attribute>
                       </attributes>
                     </child>
+                  </object>
+                </child>
+                <child internal-child="accessible">
+                  <object class="AtkObject" id="tblFiles-atkobject">
+                    <property name="AtkObject::accessible-name" translatable="yes">filenames, columns: name, new name, directory</property>
                   </object>
                 </child>
               </object>
@@ -1147,6 +1282,11 @@ Use a negative index to set one relative the the back</property>
             <property name="image">imageOptions</property>
             <property name="always-show-image">True</property>
             <signal name="clicked" handler="clickOptions" swapped="no"/>
+            <child internal-child="accessible">
+              <object class="AtkObject" id="pbOptions-atkobject">
+                <property name="AtkObject::accessible-name" translatable="yes">options</property>
+              </object>
+            </child>
           </object>
           <packing>
             <property name="pack-type">end</property>
