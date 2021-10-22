@@ -1,24 +1,7 @@
 #ifndef UTILS_H
 #define UTILS_H
 
-#define _GNU_SOURCE
-#include <gtk/gtk.h>
-#include <ctype.h>
-#include <stdbool.h>
-#include <stdlib.h>
-#include <strings.h>
-#include <regex.h>
-
-typedef wchar_t wchar;
-typedef unsigned short ushort;
-typedef unsigned uint;
-typedef unsigned long ulong;
-typedef long long llong;
-typedef unsigned long long ullong;
-typedef uint8_t uint8;
-typedef uint16_t uint16;
-typedef int64_t int64;
-typedef uint64_t uint64;
+#include "common.h"
 
 typedef enum {
 	FCOL_INVALID = -1,
@@ -27,131 +10,63 @@ typedef enum {
 	FCOL_DIRECTORY
 } FileColumn;
 
-typedef enum {
-	RENAME_KEEP,
-	RENAME_RENAME,
-	RENAME_REPLACE,
-	RENAME_LOWER_CASE,
-	RENAME_UPPER_CASE,
-	RENAME_REVERSE
-} RenameMode;
-
-typedef enum {
-	DESTINATION_IN_PLACE,
-	DESTINATION_MOVE,
-	DESTINATION_COPY,
-	DESTINATION_LINK
-} DestinationMode;
-
+#ifndef CONSOLE
 typedef enum Sorting {
 	SORT_NONE,
 	SORT_ASC,
 	SORT_DSC
 } Sorting;
+#endif
 
-typedef struct Arguments {
-	GFile** files;
-	gchar* extensionMode;
-	gchar* extensionName;
-	gchar* extensionReplace;
-	gchar* renameMode;
-	gchar* rename;
-	gchar* replace;
-	gchar* addInsert;
-	gchar* addPrefix;
-	gchar* addSuffix;
-	gchar* numberPadStr;
-	gchar* numberPrefix;
-	gchar* numberSuffix;
-	gchar* destinationMode;
-	gchar* destination;
-	gint64 extensionElements;
-	gint64 removeFrom;
-	gint64 removeTo;
-	gint64 removeFirst;
-	gint64 removeLast;
-	gint64 addAt;
-	gint64 numberLocation;
-	gint64 numberStart;
-	gint64 numberStep;
-	gint64 numberBase;
-	gint64 numberPadding;
-	int nFiles;
-	gboolean extensionCi;
-	gboolean extensionRegex;
-	gboolean replaceCi;
-	gboolean replaceRegex;
-	gboolean backwards;
-	gboolean noAutoPreview;
-	gboolean noGui;
-	gboolean dry;
+typedef enum ResponseType {
+	RESPONSE_NONE = -1,
+	RESPONSE_REJECT = -2,
+	RESPONSE_ACCEPT = -3,
+	RESPONSE_DELETE_EVENT = -4,
+	RESPONSE_OK = -5,
+	RESPONSE_CANCEL = -6,
+	RESPONSE_CLOSE = -7,
+	RESPONSE_YES = -8,
+	RESPONSE_NO = -9,
+	RESPONSE_APPLY = -10,
+	RESPONSE_HELP = -11
+} ResponseType;
 
-	RenameMode gotExtensionMode;
-	RenameMode gotRenameMode;
-	DestinationMode gotDestinationMode;
-	bool number;
-} Arguments;
+typedef enum MessageType {
+	MESSAGE_INFO,
+	MESSAGE_WARNING,
+	MESSAGE_QUESTION,
+	MESSAGE_ERROR,
+	MESSAGE_OTHER
+} MessageType;
 
-typedef struct Process {
-	GtkTreeModel* model;
-	GtkTreeIter it;
-	regex_t regExtension;
-	regex_t regRename;
-	const char* extensionName;
-	const char* extensionReplace;
-	const char* rename;
-	const char* replace;
-	const char* addInsert;
-	const char* addPrefix;
-	const char* addSuffix;
-	const char* numberPadStr;
-	const char* numberPrefix;
-	const char* numberSuffix;
-	const char* destination;
-	int id;
-	int step;
-	RenameMode extensionMode;
-	RenameMode renameMode;
-	int numberStart;
-	int numberStep;
-	DestinationMode destinationMode;
-	ushort extensionNameLen;
-	ushort extensionReplaceLen;
-	short extensionElements;
-	ushort renameLen;
-	ushort replaceLen;
-	ushort removeFrom;
-	ushort removeTo;
-	ushort removeFirst;
-	ushort removeLast;
-	ushort addInsertLen;
-	short addAt;
-	ushort addPrefixLen;
-	ushort addSuffixLen;
-	short numberLocation;
-	ushort numberPadding;
-	ushort numberPadStrLen;
-	ushort numberPrefixLen;
-	ushort numberSuffixLen;
-	ushort destinationLen;
-	ushort nameLen;
-	bool extensionCi;
-	bool extensionRegex;
-	bool replaceCi;
-	bool replaceRegex;
-	bool number;
-	uint8 numberBase;
-	bool forward;
-	char name[PATH_MAX];
-	char extension[FILENAME_MAX];
-} Process;
+typedef enum ButtonsType {
+	BUTTONS_NONE,
+	BUTTONS_OK,
+	BUTTONS_CLOSE,
+	BUTTONS_CANCEL,
+	BUTTONS_YES_NO,
+	BUTTONS_OK_CANCEL
+} ButtonsType;
+
+typedef struct Arguments Arguments;
+typedef struct Process Process;
 
 typedef struct Window {
-	Process proc;
+	Process* proc;
+#ifdef CONSOLE
+	GApplication* app;
+#else
 	GtkApplication* app;
+#endif
 	Arguments* args;
 
-	GtkWindow* window;
+#ifndef CONSOLE
+	GtkApplicationWindow* window;
+	GtkButton* btAddFiles;
+	GtkButton* btAddFolders;
+	GtkButton* btOptions;
+
 	GtkTreeView* tblFiles;
 	GtkListStore* lsFiles;
 	GtkTreeViewColumn* tblFilesName;
@@ -192,24 +107,27 @@ typedef struct Window {
 
 	GtkComboBoxText* cmbDestinationMode;
 	GtkEntry* etDestination;
+	GtkButton* btDestination;
+	GtkButton* btPreview;
+	GtkButton* btRename;
 	GtkCheckButton* cbDestinationForward;
+	GtkProgressBar* pbRename;
 
 	Sorting nameSort;
 	Sorting directorySort;
 	bool autoPreview;
+	bool singleThread;
+#endif
 } Window;
-
-#define MAX_DIGITS 10
-
-#define nmin(a, b) ((a) < (b) ? (a) : (b))
-#define nmax(a, b) ((a) > (b) ? (a) : (b))
-#define nclamp(v, lo, hi) ((v) < (lo) ? (v) : (v) > (hi) ? (hi) : (v))
 
 #ifdef __MINGW32__
 void* memrchr(const void* s, int c, size_t n);
 void unbackslashify(char* path);
 #endif
-void addFile(Window* win, const char* file);
-GtkResponseType showMessageBox(Window* win, GtkMessageType type, GtkButtonsType buttons, const char* format, ...);
+#ifndef CONSOLE
+void autoPreview(Window* win);
+#endif
+ResponseType showMessageV(Window* win, MessageType type, ButtonsType buttons, const char* format, va_list args);
+ResponseType showMessage(Window* win, MessageType type, ButtonsType buttons, const char* format, ...);
 
 #endif

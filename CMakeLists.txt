@@ -7,7 +7,7 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 
-option(APPIMAGE "Package as an AppImage." OFF)
+option(CONSOLE "Build for command line use only." OFF)
 if(CMAKE_C_COMPILER_ID STREQUAL "GNU" OR CMAKE_C_COMPILER_ID STREQUAL "Clang")
 	option(NATIVE "Build for the current CPU." OFF)
 endif()
@@ -16,7 +16,11 @@ if(CMAKE_SYSTEM_NAME MATCHES "Linux")
 endif()
 
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(GTK3 REQUIRED gtk+-3.0)
+if(CONSOLE)
+	pkg_check_modules(PKGCONFS REQUIRED glib-2.0 gio-2.0)
+else()
+	pkg_check_modules(PKGCONFS REQUIRED gtk+-3.0)
+endif()
 
 function(mingwify_paths DIRS DIRS_OUT)
 	foreach(IDIR IN LISTS DIRS)
@@ -28,17 +32,20 @@ function(mingwify_paths DIRS DIRS_OUT)
 endfunction()
 
 if(MINGW)
-	mingwify_paths("${GTK3_INCLUDE_DIRS}" DIRS_OUT)
-	set(GTK3_INCLUDE_DIRS ${DIRS_OUT})
-	mingwify_paths("${GTK3_LIBRARY_DIRS}" DIRS_OUT)
-	set(GTK3_LIBRARY_DIRS ${DIRS_OUT})
+	mingwify_paths("${PKGCONFS_INCLUDE_DIRS}" DIRS_OUT)
+	set(PKGCONFS_INCLUDE_DIRS ${DIRS_OUT})
+	mingwify_paths("${PKGCONFS_LIBRARY_DIRS}" DIRS_OUT)
+	set(PKGCONFS_LIBRARY_DIRS ${DIRS_OUT})
 endif()
 
-include_directories(${GTK3_INCLUDE_DIRS})
-link_directories(${GTK3_LIBRARY_DIRS})
-add_definitions(${GTK3_CFLAGS_OTHER})
+include_directories(${PKGCONFS_INCLUDE_DIRS})
+link_directories(${PKGCONFS_LIBRARY_DIRS})
+add_definitions(${PKGCONFS_CFLAGS_OTHER})
 if(APPIMAGE)
 	add_definitions(-DAPPIMAGE)
+endif()
+if(CONSOLE)
+	add_definitions(-DCONSOLE)
 endif()
 
 if(CMAKE_C_COMPILER_ID STREQUAL "GNU" OR CMAKE_C_COMPILER_ID STREQUAL "Clang")
@@ -50,7 +57,7 @@ if(CMAKE_C_COMPILER_ID STREQUAL "GNU" OR CMAKE_C_COMPILER_ID STREQUAL "Clang")
 	endif()
 	if(MINGW)
 		set(FLG_ANY "${FLG_ANY} -Wl,-subsystem,windows")
-	elseif(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+	elseif((CMAKE_C_COMPILER_ID STREQUAL "GNU") AND (NOT CONSOLE))
 		set(FLG_ANY "${FLG_ANY} -rdynamic")
 	endif()
 
@@ -78,12 +85,13 @@ endif()
 set(SRC_FILES
 	"src/arguments.c"
 	"src/arguments.h"
+	"src/common.h"
 	"src/main.c"
 	"src/main.h"
 	"src/rename.c"
 	"src/rename.h")
 add_executable(${PROJECT_NAME} WIN32 ${SRC_FILES})
-target_link_libraries(${PROJECT_NAME} ${GTK3_LIBRARIES})
+target_link_libraries(${PROJECT_NAME} ${PKGCONFS_LIBRARIES})
 if(MINGW)
 	set(RESOURCE_OBJ "${CMAKE_BINARY_DIR}/sfbrename.res")
 	execute_process(COMMAND windres "${CMAKE_SOURCE_DIR}/rsc/sfbrename.rc" -O coff -o "${RESOURCE_OBJ}")
@@ -99,8 +107,12 @@ set_target_properties(${PROJECT_NAME} PROPERTIES
 
 set(DATA_DIR "${PBOUT_DIR}/share/${PROJECT_NAME}")
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-	                COMMAND "${CMAKE_COMMAND}" -E make_directory "${DATA_DIR}"
-					COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${CMAKE_SOURCE_DIR}/rsc/main.glade" "${DATA_DIR}")
+	                COMMAND "${CMAKE_COMMAND}" -E make_directory "${DATA_DIR}")
+if(NOT CONSOLE)
+	add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+		                COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${CMAKE_SOURCE_DIR}/rsc/main.glade" "${DATA_DIR}")
+endif()
+
 if(MINGW)
 	execute_process(COMMAND where gdbus OUTPUT_VARIABLE GDBUS_LOC)
 	string(REGEX REPLACE "\r?\n" ";" GDBUS_LOC "${GDBUS_LOC}")
@@ -139,16 +151,18 @@ else()
 						COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${CMAKE_SOURCE_DIR}/rsc/${PROJECT_NAME}.desktop" "${PBOUT_DIR}")
 endif()
 
-find_program(SED "sed")
-if(SED)
+if(NOT CONSOLE)
+	find_program(SED "sed")
+	if(SED)
+		add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+			                COMMAND "${CMAKE_SOURCE_DIR}/rsc/spacerm.sh" "${DATA_DIR}/main.glade")
+	else()
+		message(WARNING "Can't reduce the size of the glade file: Failed to find sed")
+	endif()
+	find_program(GZIP "gzip")
 	add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-		                COMMAND "${CMAKE_SOURCE_DIR}/rsc/spacerm.sh" "${DATA_DIR}/main.glade")
-else()
-	message(WARNING "Can't reduce the size of the glade file: Failed to find sed")
+		                COMMAND "${GZIP}" -f "${DATA_DIR}/main.glade")
 endif()
-find_program(GZIP "gzip")
-add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-	                COMMAND "${GZIP}" -f "${DATA_DIR}/main.glade")
 
 if((CMAKE_CXX_COMPILER_ID MATCHES "Clang") AND (NOT CMAKE_BUILD_TYPE STREQUAL "Debug"))
 	find_program(STRIPPER "strip")
@@ -181,7 +195,6 @@ endif()
 if(APPIMAGE)
 	install(FILES "${CMAKE_BINARY_DIR}/${PROJECT_NAME}.AppImage" DESTINATION "bin")
 else()
-	set(DST_DIR "${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME}")
 	install(TARGETS ${PROJECT_NAME} DESTINATION "bin")
 	install(DIRECTORY "${DATA_DIR}" DESTINATION "share")
 endif()
