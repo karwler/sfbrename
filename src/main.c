@@ -386,9 +386,94 @@ G_MODULE_EXPORT void dropTblFiles(GtkWidget* widget, GdkDragContext* context, in
 	}
 }
 
+static GtkTreeRowReference** getTreeViewSelectedRowRefs(GtkTreeView* view, GtkTreeModel** model, uint* cnt) {
+	GtkTreeSelection* selc = gtk_tree_view_get_selection(view);
+	GList* rows = gtk_tree_selection_get_selected_rows(selc, model);
+	uint rnum = g_list_length(rows);
+	if (!rnum) {
+		g_list_free_full(rows, (GDestroyNotify)gtk_tree_path_free);
+		return NULL;
+	}
+
+	GtkTreeRowReference** refs = malloc(rnum * sizeof(GtkTreeRowReference*));
+	*cnt = 0;
+	for (GList* it = rows; it; it = it->next) {
+		refs[*cnt] = gtk_tree_row_reference_new(*model, it->data);
+		if (refs[*cnt])
+			++*cnt;
+	}
+	g_list_free_full(rows, (GDestroyNotify)gtk_tree_path_free);
+	return refs;
+}
+
+static void removeTblFilesRowRefs(Window* win, GtkTreeModel* model, GtkTreeRowReference** refs, uint cnt) {
+	for (uint i = 0; i < cnt; ++i) {
+		GtkTreeIter iter;
+		if (gtk_tree_model_get_iter(model, &iter, gtk_tree_row_reference_get_path(refs[i])))
+			gtk_list_store_remove(win->lsFiles, &iter);
+		gtk_tree_row_reference_free(refs[i]);
+	}
+	free(refs);
+	autoPreview(win);
+}
+
+static void activateTblDel(GtkMenuItem* item, Window* win) {
+	GtkTreeModel* model;
+	uint cnt;
+	GtkTreeRowReference** refs = getTreeViewSelectedRowRefs(win->tblFiles, &model, &cnt);
+	if (refs)
+		removeTblFilesRowRefs(win, model, refs, cnt);
+}
+
 G_MODULE_EXPORT gboolean buttonPressTblFiles(GtkWidget* widget, GdkEvent* event, Window* win) {
-	if (event->button.button == GDK_BUTTON_PRIMARY)
+	switch (event->button.button) {
+	case GDK_BUTTON_PRIMARY:
 		gtk_tree_view_set_reorderable(GTK_TREE_VIEW(widget), true);
+		break;
+	case GDK_BUTTON_MIDDLE: {
+		GtkTreeView* view = GTK_TREE_VIEW(widget);
+		GtkTreePath* path;
+		if (gtk_tree_view_get_path_at_pos(view, (int)event->button.x, (int)event->button.y, &path, NULL, NULL, NULL)) {
+			GtkTreeIter iter;
+			if (gtk_tree_model_get_iter(gtk_tree_view_get_model(view), &iter, path))
+				gtk_list_store_remove(win->lsFiles, &iter);
+			gtk_tree_path_free(path);
+		}
+		break; }
+	case GDK_BUTTON_SECONDARY: {
+		GtkTreeView* view = GTK_TREE_VIEW(widget);
+		GtkTreePath* path;
+		if (gtk_tree_view_get_path_at_pos(view, (int)event->button.x, (int)event->button.y, &path, NULL, NULL, NULL)) {
+			gtk_tree_view_set_cursor(view, path, NULL, false);
+			gtk_tree_path_free(path);
+		}
+
+		GtkMenuItem* miAddFiles = GTK_MENU_ITEM(gtk_menu_item_new_with_label("Add Files"));
+		g_signal_connect(miAddFiles, "activate", G_CALLBACK(clickAddFiles), win);
+
+		GtkMenuItem* miAddFolders = GTK_MENU_ITEM(gtk_menu_item_new_with_label("Add Folders"));
+		g_signal_connect(miAddFolders, "activate", G_CALLBACK(clickAddFolders), win);
+
+		GtkMenuItem* miDel = NULL;
+		if (gtk_tree_selection_count_selected_rows(gtk_tree_view_get_selection(view))) {
+			miDel = GTK_MENU_ITEM(gtk_menu_item_new_with_label("Delete"));
+			g_signal_connect(miDel, "activate", G_CALLBACK(activateTblDel), win);
+		}
+
+		GtkMenuItem* miClear = GTK_MENU_ITEM(gtk_menu_item_new_with_label("Clear"));
+		g_signal_connect(miClear, "activate", G_CALLBACK(activateClear), win);
+
+		GtkMenu* menu = GTK_MENU(gtk_menu_new());
+		gtk_menu_shell_append(GTK_MENU_SHELL(menu), GTK_WIDGET(miAddFiles));
+		gtk_menu_shell_append(GTK_MENU_SHELL(menu), GTK_WIDGET(miAddFolders));
+		gtk_menu_shell_append(GTK_MENU_SHELL(menu), gtk_separator_menu_item_new());
+		if (miDel)
+			gtk_menu_shell_append(GTK_MENU_SHELL(menu), GTK_WIDGET(miDel));
+		gtk_menu_shell_append(GTK_MENU_SHELL(menu), GTK_WIDGET(miClear));
+		gtk_widget_show_all(GTK_WIDGET(menu));
+		gtk_menu_popup_at_pointer(menu, event);
+		break; }
+	}
 	return false;
 }
 
@@ -408,10 +493,7 @@ static void appendTblFilesTextName(char** text, size_t* tlen, size_t *tmax, cons
 	*tlen += len;
 }
 
-static bool setTblFilesClipboardText(GtkTreeModel* model, GtkTreeRowReference** refs, uint cnt) {
-	if (!refs)
-		return false;
-
+static void setTblFilesClipboardText(GtkTreeModel* model, GtkTreeRowReference** refs, uint cnt) {
 	size_t tlen = 0, tmax = PATH_MAX;
 	char* text = malloc(tmax * sizeof(char));
 	for (uint i = 0; i < cnt; ++i) {
@@ -434,41 +516,6 @@ static bool setTblFilesClipboardText(GtkTreeModel* model, GtkTreeRowReference** 
 	text[tlen] = '\0';
 	gtk_clipboard_set_text(gtk_clipboard_get(GDK_SELECTION_CLIPBOARD), text, (int)tlen);
 	free(text);
-	return true;
-}
-
-static GtkTreeRowReference** getTreeViewSelectedRowRefs(GtkTreeView* view, GtkTreeModel** model, uint* cnt) {
-	GtkTreeSelection* selc = gtk_tree_view_get_selection(view);
-	GList* rows = gtk_tree_selection_get_selected_rows(selc, model);
-	uint rnum = g_list_length(rows);
-	if (!rnum) {
-		g_list_free_full(rows, (GDestroyNotify)gtk_tree_path_free);
-		return NULL;
-	}
-
-	GtkTreeRowReference** refs = malloc(rnum * sizeof(GtkTreeRowReference*));
-	*cnt = 0;
-	for (GList* it = rows; it; it = it->next) {
-		refs[*cnt] = gtk_tree_row_reference_new(*model, it->data);
-		if (refs[*cnt])
-			++*cnt;
-	}
-	g_list_free_full(rows, (GDestroyNotify)gtk_tree_path_free);
-	return refs;
-}
-
-static void removeTblFilesRowRefs(Window* win, GtkTreeModel* model, GtkTreeRowReference** refs, uint cnt) {
-	if (!refs)
-		return;
-
-	for (uint i = 0; i < cnt; ++i) {
-		GtkTreeIter iter;
-		if (gtk_tree_model_get_iter(model, &iter, gtk_tree_row_reference_get_path(refs[i])))
-			gtk_list_store_remove(win->lsFiles, &iter);
-		gtk_tree_row_reference_free(refs[i]);
-	}
-	free(refs);
-	autoPreview(win);
 }
 
 G_MODULE_EXPORT gboolean keyPressTblFiles(GtkWidget* widget, GdkEvent* event, Window* win) {
@@ -476,18 +523,21 @@ G_MODULE_EXPORT gboolean keyPressTblFiles(GtkWidget* widget, GdkEvent* event, Wi
 	case GDK_KEY_x:
 		if (event->key.state & GDK_CONTROL_MASK) {
 			GtkTreeModel* model;
-			uint cnt = 0;
+			uint cnt;
 			GtkTreeRowReference** refs = getTreeViewSelectedRowRefs(GTK_TREE_VIEW(widget), &model, &cnt);
-			setTblFilesClipboardText(model, refs, cnt);
-			removeTblFilesRowRefs(win, model, refs, cnt);
+			if (refs) {
+				setTblFilesClipboardText(model, refs, cnt);
+				removeTblFilesRowRefs(win, model, refs, cnt);
+			}
 		}
 		break;
 	case GDK_KEY_c:
 		if (event->key.state & GDK_CONTROL_MASK) {
 			GtkTreeModel* model;
-			uint cnt = 0;
+			uint cnt;
 			GtkTreeRowReference** refs = getTreeViewSelectedRowRefs(GTK_TREE_VIEW(widget), &model, &cnt);
-			if (setTblFilesClipboardText(model, refs, cnt)) {
+			if (refs) {
+				setTblFilesClipboardText(model, refs, cnt);
 				for (uint i = 0; i < cnt; ++i)
 					gtk_tree_row_reference_free(refs[i]);
 				free(refs);
@@ -519,12 +569,7 @@ G_MODULE_EXPORT gboolean keyPressTblFiles(GtkWidget* widget, GdkEvent* event, Wi
 		}
 		break;
 	case GDK_KEY_Delete:
-		if (!event->key.state) {
-			GtkTreeModel* model;
-			uint cnt = 0;
-			GtkTreeRowReference** refs = getTreeViewSelectedRowRefs(GTK_TREE_VIEW(widget), &model, &cnt);
-			removeTblFilesRowRefs(win, model, refs, cnt);
-		}
+		activateTblDel(NULL, win);
 	}
 	return false;
 }
