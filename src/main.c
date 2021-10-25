@@ -723,22 +723,6 @@ G_MODULE_EXPORT void toggleCbReplace(GtkToggleButton* editable, Window* win) {
 	autoPreview(win);
 }
 
-G_MODULE_EXPORT void valueChangeSbRemoveFrom(GtkSpinButton* spinButton, Window* win) {
-	int from = gtk_spin_button_get_value_as_int(spinButton);
-	int to = gtk_spin_button_get_value_as_int(win->sbRemoveTo);
-	if (from > to)
-		gtk_spin_button_set_value(win->sbRemoveTo, from);
-	autoPreview(win);
-}
-
-G_MODULE_EXPORT void valueChangeSbRemoveTo(GtkSpinButton* spinButton, Window* win) {
-	int from = gtk_spin_button_get_value_as_int(win->sbRemoveFrom);
-	int to = gtk_spin_button_get_value_as_int(spinButton);
-	if (to < from)
-		gtk_spin_button_set_value(win->sbRemoveFrom, to);
-	autoPreview(win);
-}
-
 G_MODULE_EXPORT void valueChangeSbNumber(GtkSpinButton* spinButton, Window* win) {
 	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(win->cbNumber), true);
 	autoPreview(win);
@@ -935,6 +919,7 @@ static void initWindow(GtkApplication* app, Window* win) {
 	win->cbDestinationForward = GTK_CHECK_BUTTON(gtk_builder_get_object(builder, "cbDestinationForward"));
 	win->pbRename = GTK_PROGRESS_BAR(gtk_builder_get_object(builder, "pbRename"));
 
+	gtk_widget_set_sensitive(GTK_WIDGET(win->btRename), !arg->dry);
 	dragEndTblFiles(GTK_WIDGET(win->tblFiles), NULL, win);
 
 	GtkLabel* numberLabel = GTK_LABEL(gtk_bin_get_child(GTK_BIN(win->cbNumber)));

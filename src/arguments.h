@@ -43,6 +43,8 @@ typedef struct Arguments {
 	gboolean noGui;
 #endif
 	gboolean dry;
+	gboolean msgAbort;
+	gboolean msgContinue;
 
 	RenameMode extensionMode;
 	RenameMode renameMode;

@@ -12,6 +12,12 @@ typedef enum ThreadCode {
 } ThreadCode;
 #endif
 
+typedef enum MessageBehavior {
+	MSGBEHAVIOR_ASK,
+	MSGBEHAVIOR_ABORT,
+	MSGBEHAVIOR_CONTINUE
+} MessageBehavior;
+
 typedef struct Window Window;
 
 typedef struct Process {
@@ -41,6 +47,7 @@ typedef struct Process {
 #ifndef CONSOLE
 	ThreadCode threadCode;
 #endif
+	MessageBehavior messageBehavior;
 	RenameMode extensionMode;
 	RenameMode renameMode;
 	int64 numberStart;
@@ -51,8 +58,8 @@ typedef struct Process {
 	short extensionElements;
 	ushort renameLen;
 	ushort replaceLen;
-	ushort removeFrom;
-	ushort removeTo;
+	short removeFrom;
+	short removeTo;
 	ushort removeFirst;
 	ushort removeLast;
 	ushort addInsertLen;

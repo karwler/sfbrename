@@ -58,6 +58,7 @@
     <property name="page-increment">10</property>
   </object>
   <object class="GtkAdjustment" id="removeFromAdj">
+    <property name="lower">-4095</property>
     <property name="upper">4095</property>
     <property name="step-increment">1</property>
     <property name="page-increment">10</property>
@@ -68,12 +69,13 @@
     <property name="page-increment">10</property>
   </object>
   <object class="GtkAdjustment" id="removeToAdj">
+    <property name="lower">-4095</property>
     <property name="upper">4095</property>
     <property name="step-increment">1</property>
     <property name="page-increment">10</property>
   </object>
   <object class="GtkAdjustment" id="sbExtensionElementsAdj">
-    <property name="lower">-1</property>
+    <property name="lower">-4095</property>
     <property name="upper">4095</property>
     <property name="value">-1</property>
     <property name="step-increment">1</property>
@@ -256,7 +258,8 @@
                             <property name="visible">True</property>
                             <property name="can-focus">True</property>
                             <property name="tooltip-text" translatable="yes">Number of dots to detect an extension
-Set to a negative value to use all dots, excluding an initial dot</property>
+A positive value counts from the back while a negative one does the opposite
+Set to 0 to use all dots, excluding an initial dot</property>
                             <property name="adjustment">sbExtensionElementsAdj</property>
                             <property name="numeric">True</property>
                             <signal name="value-changed" handler="valueChangeSbGeneric" swapped="no"/>
@@ -504,10 +507,11 @@ Set to a negative value to use all dots, excluding an initial dot</property>
                             <property name="width-request">183</property>
                             <property name="visible">True</property>
                             <property name="can-focus">True</property>
-                            <property name="tooltip-text" translatable="yes">Remove characters start index</property>
+                            <property name="tooltip-text" translatable="yes">Remove characters start index
+Use a negative index to set one relative the the back</property>
                             <property name="adjustment">removeFromAdj</property>
                             <property name="numeric">True</property>
-                            <signal name="value-changed" handler="valueChangeSbRemoveFrom" swapped="no"/>
+                            <signal name="value-changed" handler="valueChangeSbGeneric" swapped="no"/>
                             <child internal-child="accessible">
                               <object class="AtkObject" id="sbRemoveFrom-atkobject">
                                 <property name="AtkObject::accessible-name" translatable="yes">remove from</property>
@@ -535,10 +539,11 @@ Set to a negative value to use all dots, excluding an initial dot</property>
                             <property name="width-request">183</property>
                             <property name="visible">True</property>
                             <property name="can-focus">True</property>
-                            <property name="tooltip-text" translatable="yes">Remove characters end index</property>
+                            <property name="tooltip-text" translatable="yes">Remove characters end index
+Use a negative index to set one relative the the back</property>
                             <property name="adjustment">removeToAdj</property>
                             <property name="numeric">True</property>
-                            <signal name="value-changed" handler="valueChangeSbRemoveTo" swapped="no"/>
+                            <signal name="value-changed" handler="valueChangeSbGeneric" swapped="no"/>
                             <child internal-child="accessible">
                               <object class="AtkObject" id="sbRemoveTo-atkobject">
                                 <property name="AtkObject::accessible-name" translatable="yes">remove to</property>

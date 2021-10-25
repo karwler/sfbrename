@@ -124,16 +124,30 @@ static int createSymlink(const char* src, const char* dst) {
 static ResponseType continueError(Process* prc, Window* win, const char* format, ...) {
 	va_list args;
 	va_start(args, format);
-	ResponseType rc;
-	if (prc->forward ? prc->id < prc->total - 1 : prc->id) {
+	ResponseType rc = RESPONSE_NONE;
+	if (prc->messageBehavior == MSGBEHAVIOR_ASK && (prc->forward ? prc->id < prc->total - 1 : prc->id)) {
 		size_t flen = strlen(format);
 		char* fmt = malloc((flen + sizeof(CONTINUE_TEXT)) * sizeof(char));
 		memcpy(fmt, format, flen * sizeof(char));
 		strcpy(fmt + flen, CONTINUE_TEXT);
 		rc = showMessageV(win, MESSAGE_ERROR, BUTTONS_YES_NO, fmt, args);
 		free(fmt);
-	} else
-		rc = showMessageV(win, MESSAGE_ERROR, BUTTONS_OK, format, args);
+	} else {
+		switch (prc->messageBehavior) {
+		case MSGBEHAVIOR_ASK:
+			rc = showMessageV(win, MESSAGE_ERROR, BUTTONS_OK, format, args);
+			break;
+		case MSGBEHAVIOR_ABORT:
+			if (!win)
+				showMessageV(win, MESSAGE_ERROR, BUTTONS_OK, format, args);
+			rc = RESPONSE_NO;
+			break;
+		case MSGBEHAVIOR_CONTINUE:
+			if (!win)
+				showMessageV(win, MESSAGE_ERROR, BUTTONS_OK, format, args);
+			rc = RESPONSE_YES;
+		}
+	}
 	va_end(args);
 	return rc;
 }
@@ -142,7 +156,7 @@ static size_t replaceRegex(char* name, regex_t* reg, const char* new, ushort nle
 	char buf[FILENAME_MAX];
 	size_t blen = 0;
 	char* last = name;
-	for (regmatch_t match; !regexec(reg, last, 1, &match, 0) && match.rm_so != match.rm_eo;) {
+	for (regmatch_t match; !regexec(reg, last, 1, &match, 0);) {
 		if (blen + (size_t)match.rm_so + nlen >= FILENAME_MAX)
 			return SIZE_MAX;
 
@@ -228,16 +242,28 @@ static ResponseType nameRename(Process* prc, regex_t* reg, Window* win) {
 	return RESPONSE_NONE;
 }
 
+static char* getUtf8Offset(char* str, size_t len, ssize_t id, size_t ulen) {
+	if (id >= 0)
+		return (size_t)id <= ulen ? g_utf8_offset_to_pointer(str, id) : str + len;
+	return (size_t)-id <= ulen ? g_utf8_offset_to_pointer(str, (ssize_t)ulen + id + 1) : str;
+}
+
 static void nameRemove(Process* prc) {
 	size_t ulen = (size_t)g_utf8_strlen(prc->name, (ssize_t)prc->nameLen);
-	if (prc->removeTo > prc->removeFrom) {
-		size_t diff = prc->removeTo - prc->removeFrom;
-		if (diff < ulen) {
-			char* src = g_utf8_offset_to_pointer(prc->name, prc->removeTo);
-			size_t cnt = (size_t)(prc->name + prc->nameLen - src);
-			memmove(g_utf8_offset_to_pointer(prc->name, prc->removeFrom), src, (cnt + 1) * sizeof(char));
-			prc->nameLen -= cnt;
-			ulen -= diff;
+	if (prc->removeFrom != prc->removeTo) {
+		char* pfr = getUtf8Offset(prc->name, prc->nameLen, prc->removeFrom, ulen);
+		char* pto = getUtf8Offset(prc->name, prc->nameLen, prc->removeTo, ulen);
+		ssize_t diff = pto - pfr;
+		size_t dlen = (size_t)ABS(diff);
+		if (dlen < ulen) {
+			if (diff < 0) {
+				char* tmp = pfr;
+				pfr = pto;
+				pto = tmp;
+			}
+			memmove(pfr, pto, (size_t)(prc->name + prc->nameLen - pto + 1) * sizeof(char));
+			prc->nameLen -= dlen;
+			ulen -= (size_t)g_utf8_strlen(pfr, (ssize_t)dlen);
 		} else {
 			prc->nameLen = ulen = 0;
 			prc->name[0] = '\0';
@@ -273,12 +299,7 @@ static ResponseType nameAdd(Process* prc, Window* win) {
 		if (prc->nameLen + prc->addInsertLen >= FILENAME_MAX)
 			return continueError(prc, win, "Filename '%s' became too long during add.", prc->name);
 
-		char* pos;
-		size_t ulen = (size_t)g_utf8_strlen(prc->name, (ssize_t)prc->nameLen);
-		if (prc->addAt >= 0)
-			pos = (size_t)prc->addAt <= ulen ? g_utf8_offset_to_pointer(prc->name, prc->addAt) : prc->name + prc->nameLen;
-		else
-			pos = (size_t)-prc->addAt <= ulen ? g_utf8_offset_to_pointer(prc->name, (ssize_t)(ulen + (size_t)prc->addAt + 1)) : prc->name;
+		char* pos = getUtf8Offset(prc->name, prc->nameLen, prc->addAt, (size_t)g_utf8_strlen(prc->name, (ssize_t)prc->nameLen));
 		memmove(pos + prc->addInsertLen, pos, (size_t)(prc->name + prc->nameLen - pos + 1) * sizeof(char));
 		memcpy(pos, prc->addInsert, prc->addInsertLen * sizeof(char));
 		prc->nameLen += prc->addInsertLen;
@@ -304,13 +325,6 @@ static ResponseType nameAdd(Process* prc, Window* win) {
 }
 
 static ResponseType nameNumber(Process* prc, Window* win) {
-	size_t ulen = (size_t)g_utf8_strlen(prc->name, (ssize_t)prc->nameLen);
-	char* pos;
-	if (prc->numberLocation < 0)
-		pos = (size_t)-prc->numberLocation <= ulen ? g_utf8_offset_to_pointer(prc->name, (ssize_t)(ulen + (size_t)prc->numberLocation + 1)) : prc->name;
-	else
-		pos = (size_t)prc->numberLocation <= ulen ? g_utf8_offset_to_pointer(prc->name, prc->numberLocation) : prc->name + prc->nameLen;
-
 	int64 val = (int64)prc->id * prc->numberStep + prc->numberStart;
 	bool negative = val < 0;
 	const char* digits = prc->numberBase < 64 ? "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz+" : "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -327,6 +341,7 @@ static ResponseType nameNumber(Process* prc, Window* win) {
 	if (prc->nameLen + pbslen >= FILENAME_MAX)
 		return continueError(prc, win, "Filename '%s' became too long while adding number.", prc->name);
 
+	char* pos = getUtf8Offset(prc->name, prc->nameLen, prc->numberLocation, (size_t)g_utf8_strlen(prc->name, (ssize_t)prc->nameLen));
 	memmove(pos + pbslen, pos, (size_t)(prc->name + prc->nameLen - pos + 1) * sizeof(char));
 	pos = (char*)memcpy(pos, prc->numberPrefix, prc->numberPrefixLen * sizeof(char)) + prc->numberPrefixLen;
 	if (negative)
@@ -341,24 +356,34 @@ static ResponseType nameNumber(Process* prc, Window* win) {
 }
 
 static size_t processExtension(Process* prc, const char* str, size_t slen) {
-	size_t dot;
-	if (prc->extensionElements < 0) {
+	if (!prc->extensionElements) {
 		char* pos = memchr(str, '.', slen);
 		if (pos == str)
 			pos = memchr(str + 1, '.', slen - 1);
-		dot = pos ? (size_t)(pos - str) : slen;
-	} else {
-		dot = slen;
-		for (int i = 0; dot && i < prc->extensionElements; ++i) {
-			char* pos = memrchr(str, '.', dot);
+		prc->nameLen = pos ? (size_t)(pos - str) : slen;
+	} else if (prc->extensionElements > 0) {
+		prc->nameLen = slen;
+		for (int i = 0; i < prc->extensionElements; ++i) {
+			char* pos = memrchr(str, '.', prc->nameLen);
 			if (!pos)
 				break;
-			dot = (size_t)(pos - str);
+			prc->nameLen = (size_t)(pos - str);
+		}
+	} else {
+		prc->nameLen = 0;
+		for (int i = 0; i > prc->extensionElements; --i) {
+			char* pos = memchr(str, '.', slen - prc->nameLen);
+			if (!pos) {
+				if (!prc->nameLen)
+					prc->nameLen = slen;
+				break;
+			}
+			prc->nameLen = (size_t)(pos - str);
 		}
 	}
-	size_t elen = slen - dot;
-	memcpy(prc->name, str, dot * sizeof(char));
-	prc->name[dot] = '\0';
+	size_t elen = slen - prc->nameLen;
+	memcpy(prc->name, str, prc->nameLen * sizeof(char));
+	prc->name[prc->nameLen] = '\0';
 	if (!elen) {
 		prc->extension[0] = '\0';
 		return 0;
@@ -366,7 +391,7 @@ static size_t processExtension(Process* prc, const char* str, size_t slen) {
 
 	switch (prc->extensionMode) {
 	case RENAME_KEEP:
-		memcpy(prc->extension, str + dot, (elen + 1) * sizeof(char));
+		memcpy(prc->extension, str + prc->nameLen, (elen + 1) * sizeof(char));
 		break;
 	case RENAME_RENAME:
 		elen = prc->extensionNameLen;
@@ -374,18 +399,21 @@ static size_t processExtension(Process* prc, const char* str, size_t slen) {
 			memcpy(prc->extension, prc->extensionName, (elen + 1) * sizeof(char));
 		break;
 	case RENAME_REPLACE:
-		memcpy(prc->extension, str + dot, (elen + 1) * sizeof(char));
+		memcpy(prc->extension, str + prc->nameLen, (elen + 1) * sizeof(char));
 		if (prc->extensionRegex)
 			return replaceRegex(prc->extension, &prc->regExtension, prc->extensionReplace, prc->extensionReplaceLen);
 		if (prc->extensionNameLen)
 			return replaceStrings(prc->extension, prc->extensionName, prc->extensionNameLen, prc->extensionReplace, prc->extensionReplaceLen, prc->extensionCi);
 		break;
 	case RENAME_LOWER_CASE:
-		return moveGName(prc->extension, g_utf8_strdown(str + dot, (ssize_t)elen));
+		prc->extension[0] = str[prc->nameLen];
+		return moveGName(prc->extension + 1, g_utf8_strdown(str + prc->nameLen + 1, (ssize_t)elen - 1));
 	case RENAME_UPPER_CASE:
-		return moveGName(prc->extension, g_utf8_strup(str + dot, (ssize_t)elen));
+		prc->extension[0] = str[prc->nameLen];
+		return moveGName(prc->extension + 1, g_utf8_strup(str + prc->nameLen + 1, (ssize_t)elen - 1));
 	case RENAME_REVERSE:
-		return moveGName(prc->extension, g_utf8_strreverse(str + dot, (ssize_t)elen));
+		prc->extension[0] = str[prc->nameLen];
+		return moveGName(prc->extension + 1, g_utf8_strreverse(str + prc->nameLen + 1, (ssize_t)elen - 1));
 	}
 	return elen;
 }
@@ -396,7 +424,6 @@ static ResponseType processName(Process* prc, const char* oldn, size_t olen, Win
 	size_t elen = processExtension(prc, oldn, olen);
 	if (elen >= FILENAME_MAX)
 		return continueError(prc, win, "Extension became too long.");
-	prc->nameLen = olen - elen;
 
 	ResponseType rc = nameRename(prc, prc->replaceRegex ? &prc->regRename : NULL, win);
 	if (rc != RESPONSE_NONE)
@@ -441,7 +468,9 @@ static void freeRegexes(Process* prc) {
 		regfree(&prc->regRename);
 }
 
-static bool initRename(Process* prc, Window* win) {
+static bool initRename(Process* prc, Arguments* arg, Window* win) {
+	prc->messageBehavior = arg->msgAbort ? MSGBEHAVIOR_ABORT : arg->msgContinue ? MSGBEHAVIOR_CONTINUE : MSGBEHAVIOR_ASK;
+
 	if (!g_utf8_validate_len(prc->extensionName, prc->extensionNameLen, NULL)) {
 		showMessage(win, MESSAGE_ERROR, BUTTONS_OK, "Invalid UTF-8 extension name");
 		return false;
@@ -487,9 +516,9 @@ static bool initRename(Process* prc, Window* win) {
 		return false;
 	}
 
-	if (!initRegex(&prc->extensionRegex, &prc->regExtension, prc->extensionReplace, prc->extensionReplaceLen, prc->extensionRegex, prc->extensionCi, win))
+	if (!initRegex(&prc->extensionRegex, &prc->regExtension, prc->extensionName, prc->extensionNameLen, prc->extensionRegex, prc->extensionCi, win))
 		return false;
-	if (!initRegex(&prc->replaceRegex, &prc->regRename, prc->replace, prc->replaceLen, prc->replaceRegex, prc->replaceCi, win)) {
+	if (!initRegex(&prc->replaceRegex, &prc->regRename, prc->rename, prc->renameLen, prc->replaceRegex, prc->replaceCi, win)) {
 		freeRegexes(prc);
 		return false;
 	}
@@ -528,8 +557,8 @@ static bool initWindowRename(Window* win) {
 	prc->numberStep = gtk_spin_button_get_value_as_int(win->sbNumberStep);
 	prc->destinationMode = (uint)gtk_combo_box_get_active(GTK_COMBO_BOX(win->cmbDestinationMode));
 	prc->extensionElements = (short)gtk_spin_button_get_value_as_int(win->sbExtensionElements);
-	prc->removeFrom = (ushort)gtk_spin_button_get_value_as_int(win->sbRemoveFrom);
-	prc->removeTo = (ushort)gtk_spin_button_get_value_as_int(win->sbRemoveTo);
+	prc->removeFrom = (short)gtk_spin_button_get_value_as_int(win->sbRemoveFrom);
+	prc->removeTo = (short)gtk_spin_button_get_value_as_int(win->sbRemoveTo);
 	prc->removeFirst = (ushort)gtk_spin_button_get_value_as_int(win->sbRemoveFirst);
 	prc->removeLast = (ushort)gtk_spin_button_get_value_as_int(win->sbRemoveLast);
 	prc->addAt = (short)gtk_spin_button_get_value_as_int(win->sbAddAt);
@@ -554,7 +583,7 @@ static bool initWindowRename(Window* win) {
 		prc->destinationMode = DESTINATION_IN_PLACE;
 		gtk_combo_box_set_active(GTK_COMBO_BOX(win->cmbDestinationMode), DESTINATION_IN_PLACE);
 	}
-	return initRename(prc, win);
+	return initRename(prc, win->args, win);
 }
 #endif
 
@@ -573,7 +602,8 @@ static bool initConsoleRename(Process* prc, Arguments* arg) {
 	prc->numberSuffix = arg->numberSuffix ? arg->numberSuffix : "";
 	prc->destination = arg->destination ? arg->destination : "";
 	prc->forward = !arg->backwards;
-	prc->id = prc->forward ? 0 : arg->nFiles - 1;
+	prc->total = arg->nFiles;
+	prc->id = prc->forward ? 0 : prc->total - 1;
 	prc->step = prc->forward ? 1 : -1;
 	prc->extensionMode = arg->extensionMode;
 	prc->renameMode = arg->renameMode;
@@ -585,8 +615,8 @@ static bool initConsoleRename(Process* prc, Arguments* arg) {
 	prc->extensionElements = (short)arg->extensionElements;
 	prc->renameLen = (ushort)strlen(prc->rename);
 	prc->replaceLen = (ushort)strlen(prc->replace);
-	prc->removeFrom = (ushort)arg->removeFrom;
-	prc->removeTo = (ushort)arg->removeTo;
+	prc->removeFrom = (short)arg->removeFrom;
+	prc->removeTo = (short)arg->removeTo;
 	prc->removeFirst = (ushort)arg->removeFirst;
 	prc->removeLast = (ushort)arg->removeLast;
 	prc->addInsertLen = (ushort)strlen(prc->addInsert);
@@ -607,7 +637,7 @@ static bool initConsoleRename(Process* prc, Arguments* arg) {
 	prc->numberBase = (uint8)arg->numberBase;
 	if (!arg->destination)
 		prc->destinationMode = DESTINATION_IN_PLACE;
-	return initRename(prc, NULL);
+	return initRename(prc, arg, NULL);
 }
 
 #ifndef CONSOLE
@@ -835,6 +865,16 @@ void windowPreview(Window* win) {
 }
 #endif
 
+#ifdef __MINGW32__
+static char* getWindowsFilepath(const char* path, size_t* plen) {
+	*plen = strlen(path);
+	char* str = malloc((*plen + 1) * sizeof(char));
+	memcpy(str, path, (*plen + 1) * sizeof(char));
+	unbackslashify(str);
+	return str;
+}
+#endif
+
 void consoleRename(Window* win) {
 	Process* prc = win->proc;
 	Arguments* arg = win->args;
@@ -845,12 +885,18 @@ void consoleRename(Window* win) {
 
 	ResponseType rc;
 	do {
+#ifdef __MINGW32__
+		size_t plen;
+		char* path = getWindowsFilepath(g_file_peek_path(arg->files[prc->id]), &plen);
+#else
 		const char* path = g_file_peek_path(arg->files[prc->id]);
 		size_t plen = strlen(path);
-		const char* sl = memrchr(path, '/', plen * sizeof(char));
-		if (sl) {
+#endif
+		const char* oldn = memrchr(path, '/', plen * sizeof(char));
+		if (oldn) {
+			++oldn;
 			if (prc->destinationMode == DESTINATION_IN_PLACE) {
-				prc->dstdirLen = (size_t)(sl - path + 1);
+				prc->dstdirLen = (size_t)(oldn - path);
 				memcpy(prc->dstdir, path, prc->dstdirLen * sizeof(char));
 				prc->dstdir[prc->dstdirLen] = '\0';
 			}
@@ -859,18 +905,24 @@ void consoleRename(Window* win) {
 				prc->dstdirLen = 0;
 				prc->dstdir[0] = '\0';
 			}
-			sl = path - 1;
+			oldn = path;
 		}
-		size_t olen = (size_t)(path + plen - sl - 1);
-		const char* oldn = sl + 1;
+		size_t olen = (size_t)(path + plen - oldn);
 
 		rc = processName(prc, oldn, olen, NULL);
 		if (rc == RESPONSE_NONE) {
 			rc = processFile(prc, oldn, olen, NULL);
-			if (rc == RESPONSE_NONE && !arg->noAutoPreview)
-				g_print("'%s' -> '%s'\n", oldn, prc->name);
+			if (rc == RESPONSE_NONE && !arg->noAutoPreview) {
+				if (prc->destinationMode == DESTINATION_IN_PLACE)
+					g_print("'%s' -> '%s'\n", oldn, prc->name);
+				else
+					g_print("'%s' -> '%s%s'\n", path, prc->dstdir, prc->name);
+			}
 		}
 		prc->id += (size_t)prc->step;
+#ifdef __MINGW32__
+		free(path);
+#endif
 	} while ((rc == RESPONSE_NONE || rc == RESPONSE_YES) && prc->id < arg->nFiles);
 	freeRegexes(prc);
 }
@@ -883,11 +935,16 @@ void consolePreview(Window* win) {
 
 	ResponseType rc;
 	do {
+#ifdef __MINGW32__
+		size_t olen;
+		char* path = getWindowsFilepath(g_file_peek_path(arg->files[prc->id]), &olen);
+#else
 		const char* path = g_file_peek_path(arg->files[prc->id]);
 		size_t olen = strlen(path);
+#endif
 		const char* oldn = memrchr(path, '/', olen * sizeof(char));
 		if (oldn)
-			olen = (size_t)(path + olen - oldn - 1);
+			olen = (size_t)(path + olen - ++oldn);
 		else
 			oldn = path;
 
@@ -895,6 +952,9 @@ void consolePreview(Window* win) {
 		if (rc == RESPONSE_NONE)
 			g_print("'%s' -> '%s'\n", oldn, prc->name);
 		prc->id += (size_t)prc->step;
+#ifdef __MINGW32__
+		free(path);
+#endif
 	} while ((rc == RESPONSE_NONE || rc == RESPONSE_YES) && prc->id < arg->nFiles);
 	freeRegexes(prc);
 }
