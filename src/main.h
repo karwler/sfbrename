@@ -118,6 +118,7 @@ typedef struct Window {
 	bool autoPreview;
 	bool singleThread;
 #endif
+	bool dryAuto;
 } Window;
 
 #ifdef __MINGW32__

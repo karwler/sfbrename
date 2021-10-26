@@ -152,27 +152,16 @@ static ResponseType continueError(Process* prc, Window* win, const char* format,
 	return rc;
 }
 
-static size_t replaceRegex(char* name, regex_t* reg, const char* new, ushort nlen) {
-	char buf[FILENAME_MAX];
-	size_t blen = 0;
-	char* last = name;
-	for (regmatch_t match; !regexec(reg, last, 1, &match, 0);) {
-		if (blen + (size_t)match.rm_so + nlen >= FILENAME_MAX)
-			return SIZE_MAX;
+static size_t replaceRegex(const GRegex* reg, char* name, size_t nameLen, const char* new) {
+	char* str = g_regex_replace(reg, name, (ssize_t)nameLen, 0, new, G_REGEX_MATCH_NEWLINE_ANYCRLF, NULL);
+	if (!str)
+		return nameLen;
 
-		memcpy(buf + blen, last, (size_t)match.rm_so * sizeof(char));
-		memcpy(buf + blen + (size_t)match.rm_so, new, nlen * sizeof(char));
-		blen += (size_t)match.rm_so + nlen;
-		last += match.rm_eo;
-	}
-	size_t rest = strlen(last);
-	size_t tlen = blen + rest;
-	if (tlen >= FILENAME_MAX)
-		return SIZE_MAX;
-
-	memcpy(buf + blen, last, (rest + 1) * sizeof(char));
-	memcpy(name, buf, (tlen + 1) * sizeof(char));
-	return tlen;
+	size_t slen = strlen(str);
+	if (slen < FILENAME_MAX)
+		memcpy(name, str, (slen + 1) * sizeof(char));
+	g_free(str);
+	return slen;
 }
 
 static size_t replaceStrings(char* name, const char* old, ushort olen, const char* new, ushort nlen, bool ci) {
@@ -212,7 +201,7 @@ static size_t moveGName(char* dst, char* src) {
 	return len;
 }
 
-static ResponseType nameRename(Process* prc, regex_t* reg, Window* win) {
+static ResponseType nameRename(Process* prc, Window* win) {
 	switch (prc->renameMode) {
 	case RENAME_KEEP:
 		return RESPONSE_NONE;
@@ -222,8 +211,8 @@ static ResponseType nameRename(Process* prc, regex_t* reg, Window* win) {
 			memcpy(prc->name, prc->rename, (prc->nameLen + 1) * sizeof(char));
 		break;
 	case RENAME_REPLACE:
-		if (reg)
-			prc->nameLen = replaceRegex(prc->name, reg, prc->replace, prc->replaceLen);
+		if (prc->replaceRegex)
+			prc->nameLen = replaceRegex(prc->regRename, prc->name, prc->nameLen, prc->replace);
 		else if (prc->renameLen)
 			prc->nameLen = replaceStrings(prc->name, prc->rename, prc->renameLen, prc->replace, prc->replaceLen, prc->replaceCi);
 		break;
@@ -401,7 +390,7 @@ static size_t processExtension(Process* prc, const char* str, size_t slen) {
 	case RENAME_REPLACE:
 		memcpy(prc->extension, str + prc->nameLen, (elen + 1) * sizeof(char));
 		if (prc->extensionRegex)
-			return replaceRegex(prc->extension, &prc->regExtension, prc->extensionReplace, prc->extensionReplaceLen);
+			return replaceRegex(prc->regExtension, prc->extension, elen, prc->extensionReplace);
 		if (prc->extensionNameLen)
 			return replaceStrings(prc->extension, prc->extensionName, prc->extensionNameLen, prc->extensionReplace, prc->extensionReplaceLen, prc->extensionCi);
 		break;
@@ -425,7 +414,7 @@ static ResponseType processName(Process* prc, const char* oldn, size_t olen, Win
 	if (elen >= FILENAME_MAX)
 		return continueError(prc, win, "Extension became too long.");
 
-	ResponseType rc = nameRename(prc, prc->replaceRegex ? &prc->regRename : NULL, win);
+	ResponseType rc = nameRename(prc, win);
 	if (rc != RESPONSE_NONE)
 		return rc;
 	nameRemove(prc);
@@ -445,27 +434,27 @@ static ResponseType processName(Process* prc, const char* oldn, size_t olen, Win
 	return rc;
 }
 
-static bool initRegex(bool* inUse, regex_t* reg, const char* expr, ushort exlen, bool use, bool ci, Window* win) {
+static bool initRegex(bool* inUse, GRegex** reg, const char* expr, ushort exlen, bool use, bool ci, Window* win) {
 	*inUse = use && exlen;
 	if (*inUse) {
-		int err = regcomp(reg, expr, REG_EXTENDED | (ci ? REG_ICASE : 0));
-		if (err) {
-			size_t elen = regerror(err, reg, NULL, 0);
-			char* estr = malloc(elen * sizeof(char));
-			regerror(err, reg, estr, elen);
-			showMessage(win, MESSAGE_ERROR, BUTTONS_OK, "Invalid regular expression: '%s'\n", estr);
-			free(estr);
+		GError* err = NULL;
+		*reg = g_regex_new(expr, (ci ? G_REGEX_CASELESS : 0) | G_REGEX_MULTILINE | G_REGEX_DOTALL | G_REGEX_OPTIMIZE | G_REGEX_NEWLINE_ANYCRLF, G_REGEX_MATCH_NEWLINE_ANYCRLF, &err);
+		if (!*reg) {
+			if (!(win && win->dryAuto))
+				showMessage(win, MESSAGE_ERROR, BUTTONS_OK, "Invalid regular expression: '%s'\n", err->message);
+			g_clear_error(&err);
 			return *inUse = false;
 		}
-	}
+	} else
+		*reg = NULL;
 	return true;
 }
 
 static void freeRegexes(Process* prc) {
 	if (prc->extensionRegex)
-		regfree(&prc->regExtension);
+		 g_regex_unref(prc->regExtension);
 	if (prc->replaceRegex)
-		regfree(&prc->regRename);
+		 g_regex_unref(prc->regRename);
 }
 
 static bool initRename(Process* prc, Arguments* arg, Window* win) {
@@ -516,9 +505,9 @@ static bool initRename(Process* prc, Arguments* arg, Window* win) {
 		return false;
 	}
 
-	if (!initRegex(&prc->extensionRegex, &prc->regExtension, prc->extensionName, prc->extensionNameLen, prc->extensionRegex, prc->extensionCi, win))
-		return false;
-	if (!initRegex(&prc->replaceRegex, &prc->regRename, prc->rename, prc->renameLen, prc->replaceRegex, prc->replaceCi, win)) {
+	bool okExt = initRegex(&prc->extensionRegex, &prc->regExtension, prc->extensionName, prc->extensionNameLen, prc->extensionRegex, prc->extensionCi, win);
+	bool okName = initRegex(&prc->replaceRegex, &prc->regRename, prc->rename, prc->renameLen, prc->replaceRegex, prc->replaceCi, win);
+	if (!(okExt && okName)) {
 		freeRegexes(prc);
 		return false;
 	}
@@ -834,11 +823,11 @@ void windowRename(Window* win) {
 		return;
 	}
 
-	GError* error;
-	prc->thread = g_thread_try_new(NULL, windowRenameProc, win, &error);
+	GError* err = NULL;
+	prc->thread = g_thread_try_new(NULL, windowRenameProc, win, &err);
 	if (!prc->thread) {
-		ResponseType rc = showMessage(win, MESSAGE_ERROR, BUTTONS_YES_NO, "Failed to create thread: %s\nRun on main thread?", error->message);
-		g_clear_error(&error);
+		ResponseType rc = showMessage(win, MESSAGE_ERROR, BUTTONS_YES_NO, "Failed to create thread: %s\nRun on main thread?", err->message);
+		g_clear_error(&err);
 		if (rc == RESPONSE_YES)
 			windowRenameProc(win);
 		else

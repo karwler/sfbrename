@@ -2,7 +2,6 @@
 #define RENAME_H
 
 #include "common.h"
-#include <regex.h>
 
 #ifndef CONSOLE
 typedef enum ThreadCode {
@@ -29,8 +28,8 @@ typedef struct Process {
 #endif
 	size_t id;
 	size_t total;
-	regex_t regExtension;
-	regex_t regRename;
+	GRegex* regExtension;
+	GRegex* regRename;
 	const char* extensionName;
 	const char* extensionReplace;
 	const char* rename;

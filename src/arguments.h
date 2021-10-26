@@ -39,9 +39,7 @@ typedef struct Arguments {
 	gboolean replaceRegex;
 	gboolean backwards;
 	gboolean noAutoPreview;
-#ifndef CONSOLE
 	gboolean noGui;
-#endif
 	gboolean dry;
 	gboolean msgAbort;
 	gboolean msgContinue;

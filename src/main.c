@@ -787,8 +787,11 @@ G_MODULE_EXPORT gboolean closeWindow(GtkApplicationWindow* window, GdkEvent* eve
 }
 
 void autoPreview(Window* win) {
-	if (win->autoPreview)
+	if (win->autoPreview) {
+		win->dryAuto = true;
 		clickPreview(NULL, win);
+		win->dryAuto = false;
+	}
 }
 #endif
 

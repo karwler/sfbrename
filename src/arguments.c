@@ -108,9 +108,10 @@ void initCommandLineArguments(GApplication* app, Arguments* arg, int argc, char*
 	GOptionEntry params[] = {
 #ifdef CONSOLE
 		{ "no-auto-preview", 'a', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE, &arg->noAutoPreview, "\n\tDisable verbose output.\n", NULL },
+		{ "no-gui", 'g', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE, &arg->noGui, "\n\tThis option is ignored. It exists for compatibility reasons.\n", NULL },
 #else
-		{ "no-gui", 'g', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE, &arg->noGui, "\n\tDon't open a window and only process the files.\n", "TEST" },
 		{ "no-auto-preview", 'a', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE, &arg->noAutoPreview, "\n\tDisable auto preview.\n\tWhen combined with --no-gui it will disable verbose output.\n", NULL },
+		{ "no-gui", 'g', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE, &arg->noGui, "\n\tDon't open a window and only process the files.\n", NULL },
 #endif
 		{ "dry", 'y', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE, &arg->dry, "\n\tWhen combined with --no-gui the new filenames will be shown without renaming any files.\n", NULL },
 		{ "abort", 'Z', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE, &arg->msgAbort, "\n\tAbort the renaming process when an error occurs.\n\tIf this option or --continue aren't set, the user will be asked whether to continue.\n", NULL },
@@ -147,11 +148,7 @@ void initCommandLineArguments(GApplication* app, Arguments* arg, int argc, char*
 		{ "rename-regex", 'x', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE, &arg->replaceRegex, "\n\tUse the string set by --rename-name as a regular expression when --rename-mode is set to \"replace\".\n", NULL },
 		{ NULL, '\0', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE, NULL, NULL, NULL }
 	};
-#ifdef CONSOLE
-	const int nid = 17;
-#else
 	const int nid = 18;
-#endif
 	for (int i = 1; i < argc; ++i)
 		for (int j = 0; j < 8; ++j)
 			if ((argv[i][0] == '-' && argv[i][1] == params[j + nid].short_name && !argv[i][2]) || (!strncmp(argv[i], "--", 2) && !strcmp(argv[i] + 2, params[j + nid].long_name))) {

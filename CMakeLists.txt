@@ -64,7 +64,7 @@ if(CMAKE_C_COMPILER_ID STREQUAL "GNU" OR CMAKE_C_COMPILER_ID STREQUAL "Clang")
 	if(NATIVE)
 		set(FLG_ANY "${FLG_ANY} -march=native")
 	elseif(CMAKE_SIZEOF_VOID_P EQUAL 8)
-		set(FLG_ANY "${FLG_ANY} -mmmx -msse -msse2")
+		set(FLG_ANY "${FLG_ANY} -march=x86-64")
 	endif()
 	set(FLG_DEBUG "-g")
 	set(FLG_RELEASE "-O3")
@@ -82,6 +82,7 @@ else()
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${FLG_ANY} ${FLG_RELEASE}")
 endif()
 
+set(DIR_RSC "${CMAKE_SOURCE_DIR}/rsc")
 set(SRC_FILES
 	"src/arguments.c"
 	"src/arguments.h"
@@ -94,7 +95,7 @@ add_executable(${PROJECT_NAME} WIN32 ${SRC_FILES})
 target_link_libraries(${PROJECT_NAME} ${PKGCONFS_LIBRARIES})
 if(MINGW)
 	set(RESOURCE_OBJ "${CMAKE_BINARY_DIR}/sfbrename.res")
-	execute_process(COMMAND windres "${CMAKE_SOURCE_DIR}/rsc/sfbrename.rc" -O coff -o "${RESOURCE_OBJ}")
+	execute_process(COMMAND windres "${DIR_RSC}/sfbrename.rc" -O coff -o "${RESOURCE_OBJ}")
 	target_link_libraries(${PROJECT_NAME} gnurx "${RESOURCE_OBJ}")
 endif()
 
@@ -110,7 +111,7 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
 	                COMMAND "${CMAKE_COMMAND}" -E make_directory "${DATA_DIR}")
 if(NOT CONSOLE)
 	add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-		                COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${CMAKE_SOURCE_DIR}/rsc/main.glade" "${DATA_DIR}")
+		                COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${DIR_RSC}/main.glade" "${DATA_DIR}")
 endif()
 
 if(MINGW)
@@ -148,14 +149,14 @@ if(MINGW)
 						COMMAND "${CMAKE_COMMAND}" -E copy_directory "${PIXBUF_LOC}" "${PIXBUF_DIR}")
 else()
 	add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-						COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${CMAKE_SOURCE_DIR}/rsc/${PROJECT_NAME}.desktop" "${PBOUT_DIR}")
+						COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${DIR_RSC}/${PROJECT_NAME}.desktop" "${PBOUT_DIR}")
 endif()
 
 if(NOT CONSOLE)
 	find_program(SED "sed")
 	if(SED)
 		add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-			                COMMAND "${CMAKE_SOURCE_DIR}/rsc/spacerm.sh" "${DATA_DIR}/main.glade")
+			                COMMAND "${DIR_RSC}/spacerm.sh" "${DATA_DIR}/main.glade")
 	else()
 		message(WARNING "Can't reduce the size of the glade file: Failed to find sed")
 	endif()
@@ -177,7 +178,7 @@ endif()
 if(APPIMAGE)
 	add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
 		                COMMAND "${CMAKE_COMMAND}" -E create_symlink "bin/${PROJECT_NAME}" "${PBOUT_DIR}/AppRun"
-						COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${CMAKE_SOURCE_DIR}/rsc/${PROJECT_NAME}.png" "${PBOUT_DIR}")
+						COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${DIR_RSC}/${PROJECT_NAME}.png" "${PBOUT_DIR}")
 
 	find_program(APPIMAGETOOL "appimagetool")
 	if(APPIMAGETOOL)
@@ -189,7 +190,7 @@ if(APPIMAGE)
 	endif()
 else()
 	add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-		                COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${CMAKE_SOURCE_DIR}/rsc/${PROJECT_NAME}.png" "${DATA_DIR}")
+		                COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${DIR_RSC}/${PROJECT_NAME}.png" "${DATA_DIR}")
 endif()
 
 if(APPIMAGE)
@@ -209,6 +210,9 @@ else()
 						COMMAND "${CMAKE_COMMAND}" -E remove_directory "${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME}"
 						WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 endif()
+
+enable_testing()
+add_test(NAME "tests" COMMAND "${DIR_RSC}/test.sh" "$<TARGET_FILE:${PROJECT_NAME}>")
 
 foreach(FSRC IN LISTS SRC_FILES)
 	get_filename_component(FGRP "${FSRC}" DIRECTORY)
