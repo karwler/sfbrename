@@ -6,23 +6,19 @@
 #ifndef CONSOLE
 #include <zlib.h>
 #endif
-#ifdef __MINGW32__
+#ifdef _WIN32
 #include <windows.h>
 #endif
 
 #define MAIN_GLADE_PATH "share/sfbrename/main.glade.gz"
-#ifdef APPIMAGE
-#define WINDOW_ICON_PATH "sfbrename.png"
-#else
 #define WINDOW_ICON_PATH "share/sfbrename/sfbrename.png"
-#endif
 #define INFLATED_SIZE 40000
 #define INFLATE_INCREMENT 10000
 #define FILE_URI_PREFIX "file://"
 #define LINE_BREAK_CHARS "\r\n"
 #define DEFAULT_PRINT_BUFFER_SIZE 1024
 #define COLOSSAL_FUCKUP_MESSAGE "Failed to build message"
-#ifdef __MINGW32__
+#ifdef _WIN32
 #define EXECUTABLE_NAME "sfbrename.exe"
 #endif
 
@@ -49,7 +45,7 @@ typedef struct KeyDirPos {
 } KeyDirPos;
 #endif
 
-#ifdef __MINGW32__
+#ifdef _WIN32
 void* memrchr(const void* s, int c, size_t n) {
 	uint8* p = (uint8*)s;
 	if (n)
@@ -68,22 +64,43 @@ void unbackslashify(char* path) {
 #endif
 
 #ifndef CONSOLE
-static uint8* readGzip(const char* path, size_t* olen) {
+static char* readGzip(const char* path, size_t* olen) {
 	gzFile file = gzopen(path, "rb");
 	if (!file)
 		return NULL;
 
 	*olen = 0;
 	size_t siz = INFLATED_SIZE;
-	uint8* str = malloc(siz);
+	char* str = malloc(siz * sizeof(char));
 	for (;;) {
-		*olen += (size_t)gzread(file, str + *olen, (uint)(siz - *olen));
+		*olen += (size_t)gzread(file, str + *olen, (uint)(siz - *olen) * sizeof(char));
 		if (*olen < siz)
 			break;
 		siz += INFLATE_INCREMENT;
 		str = realloc(str, siz);
 	}
 	gzclose(file);
+	return str;
+}
+
+static char* readFile(const char* path, size_t* olen) {
+	FILE* file = fopen(path, "rb");
+	if (!file || fseek(file, 0, SEEK_END))
+		return NULL;
+	*olen = ftell(file);
+	if (*olen == SIZE_MAX || fseek(file, 0, SEEK_SET))
+		return NULL;
+
+	char* str = malloc(*olen * sizeof(char));
+	size_t rlen = fread(str, sizeof(char), *olen, file);
+	if (!rlen) {
+		free(str);
+		return NULL;
+	}
+	if (rlen < *olen) {
+		*olen = rlen;
+		str = realloc(str, rlen * sizeof(char));
+	}
 	return str;
 }
 
@@ -128,13 +145,13 @@ static void processArgumentFiles(Window* win) {
 
 	Arguments* arg = win->args;
 	if (!arg->noGui && arg->files) {
-#ifdef __MINGW32__
+#ifdef _WIN32
 		char buf[PATH_MAX];
 #endif
 		for (size_t i = 0; i < arg->nFiles; ++i) {
 			const char* file = g_file_peek_path(arg->files[i]);
 			if (file) {
-#ifdef __MINGW32__
+#ifdef _WIN32
 				size_t fsiz = strlen(file) + 1;
 				if (fsiz >= PATH_MAX) {
 					g_printerr("Filepath '%s' is too long\n", file);
@@ -247,13 +264,13 @@ static void runAddDialog(Window* win, const char* title, GtkFileChooserAction ac
 	gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(dialog), g_get_home_dir());
 	gtk_file_chooser_set_select_multiple(GTK_FILE_CHOOSER(dialog), true);
 
-#ifdef __MINGW32__
+#ifdef _WIN32
 	char path[PATH_MAX];
 #endif
 	if (gtk_dialog_run(GTK_DIALOG(dialog)) == GTK_RESPONSE_ACCEPT) {
 		GSList* files = gtk_file_chooser_get_filenames(GTK_FILE_CHOOSER(dialog));
 		for (GSList* it = files; it; it = it->next) {
-#ifdef __MINGW32__
+#ifdef _WIN32
 			size_t plen = strlen(it->data);
 			if (plen < PATH_MAX) {
 				memcpy(path, it->data, (plen + 1) * sizeof(char));
@@ -368,12 +385,16 @@ static bool addFileUris(Window* win, char** uris) {
 	size_t flen = strlen(FILE_URI_PREFIX);
 	for (int i = 0; uris[i]; ++i)
 		if (!strncmp(uris[i], FILE_URI_PREFIX, flen)) {
-#ifdef __MINGW32__
-			const char* file = uris[i] + flen;
-			addFile(win, file + (file[0] == '/' && isalnum(file[1]) && file[2] == ':' && file[3] == '/'));
+			char* fpath = g_uri_unescape_string(uris[i] + flen, "/");
+			if (fpath) {
+#ifdef _WIN32
+				addFile(win, fpath + (fpath[0] == '/' && isalnum(fpath[1]) && fpath[2] == ':' && fpath[3] == '/'));
 #else
-			addFile(win, uris[i] + flen);
+				addFile(win, fpath);
 #endif
+				g_free(fpath);
+			} else
+				g_printerr("Failed to unescape '%s'\n", uris[i]);
 		}
 	g_strfreev(uris);
 	return true;
@@ -504,7 +525,7 @@ static void setTblFilesClipboardText(GtkTreeModel* model, GtkTreeRowReference** 
 			gtk_tree_model_get(model, &iter, FCOL_OLD_NAME, &name, FCOL_DIRECTORY, &dirc, FCOL_INVALID);
 			appendTblFilesTextName(&text, &tlen, &tmax, dirc);
 			appendTblFilesTextName(&text, &tlen, &tmax, name);
-#ifdef __MINGW32__
+#ifdef _WIN32
 			appendTblFilesTextName(&text, &tlen, &tmax, LINE_BREAK_CHARS);
 #else
 			appendTblFilesTextName(&text, &tlen, &tmax, "\n");
@@ -832,7 +853,7 @@ static void initWindow(GtkApplication* app, Window* win) {
 	}
 
 	char path[PATH_MAX];
-#ifdef __MINGW32__
+#ifdef _WIN32
 	wchar* wpath = malloc(PATH_MAX * sizeof(wchar));
 	size_t plen = GetModuleFileNameW(NULL, wpath, PATH_MAX) + 1;
 	if (plen > 1 && plen <= PATH_MAX)
@@ -842,7 +863,7 @@ static void initWindow(GtkApplication* app, Window* win) {
 	size_t plen = (size_t)readlink("/proc/self/exe", path, PATH_MAX);
 #endif
 	if (plen > 1 && plen <= PATH_MAX) {
-#ifdef __MINGW32__
+#ifdef _WIN32
 		unbackslashify(path);
 #endif
 		char* pos = memrchr(path, '/', --plen);
@@ -863,10 +884,14 @@ static void initWindow(GtkApplication* app, Window* win) {
 	strcpy(path + plen, MAIN_GLADE_PATH);
 
 	size_t glen;
-	char* glade = (char*)readGzip(path, &glen);
+	char* glade = readGzip(path, &glen);
 	if (!glade) {
-		g_printerr("Failed to read main.glade\n");
-		return;
+		path[plen + strlen(MAIN_GLADE_PATH) - 3] = '\0';
+		glade = readFile(path, &glen);
+		if (!glade) {
+			g_printerr("Failed to read main.glade\n");
+			return;
+		}
 	}
 
 	GtkBuilder* builder = gtk_builder_new();
