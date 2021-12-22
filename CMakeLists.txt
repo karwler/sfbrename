@@ -1,8 +1,5 @@
 cmake_minimum_required(VERSION 3.12.4)
-project(sfbrename LANGUAGES C)
-if(CMAKE_CONFIGURATION_TYPES)
-	set(CMAKE_CONFIGURATION_TYPES "Debug" "Release")
-endif()
+project(sfbrename VERSION 1.0.0 DESCRIPTION "Tool for batch renaming files" HOMEPAGE_URL "https://github.com/karwler/sfbrename" LANGUAGES C)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
@@ -11,7 +8,7 @@ option(CONSOLE "Build for command line use only." OFF)
 if(CMAKE_C_COMPILER_ID STREQUAL "GNU" OR CMAKE_C_COMPILER_ID STREQUAL "Clang")
 	option(NATIVE "Build for the current CPU." OFF)
 endif()
-if(CMAKE_SYSTEM_NAME MATCHES "Linux")
+if(UNIX)
 	option(APPIMAGE "Package as an AppImage." OFF)
 endif()
 
@@ -22,64 +19,32 @@ else()
 	pkg_check_modules(PKGCONFS REQUIRED gtk+-3.0)
 endif()
 
-function(mingwify_paths DIRS DIRS_OUT)
-	foreach(IDIR IN LISTS DIRS)
-		string(SUBSTRING "${IDIR}" 0 1 IDIR_DRIVE)
-		string(REGEX REPLACE "^${IDIR_DRIVE}:" "/${IDIR_DRIVE}" IDIR "${IDIR}")
-		list(APPEND DIRS_NEW "${IDIR}")
-	endforeach()
-	set(${DIRS_OUT} ${DIRS_NEW} PARENT_SCOPE)
-endfunction()
-
-if(MINGW)
-	mingwify_paths("${PKGCONFS_INCLUDE_DIRS}" DIRS_OUT)
-	set(PKGCONFS_INCLUDE_DIRS ${DIRS_OUT})
-	mingwify_paths("${PKGCONFS_LIBRARY_DIRS}" DIRS_OUT)
-	set(PKGCONFS_LIBRARY_DIRS ${DIRS_OUT})
-endif()
-
 include_directories(${PKGCONFS_INCLUDE_DIRS})
 link_directories(${PKGCONFS_LIBRARY_DIRS})
 add_definitions(${PKGCONFS_CFLAGS_OTHER})
-if(APPIMAGE)
-	add_definitions(-DAPPIMAGE)
-endif()
-if(CONSOLE)
-	add_definitions(-DCONSOLE)
-endif()
+add_compile_definitions($<$<BOOL:${CONSOLE}>:CONSOLE>)
 
 if(CMAKE_C_COMPILER_ID STREQUAL "GNU" OR CMAKE_C_COMPILER_ID STREQUAL "Clang")
-	set(FLG_ANY "-Wall -Wextra -pedantic-errors -Wdouble-promotion -Wshadow -Wunreachable-code -Wno-unused-parameter")
+	add_compile_options(-Wall -Wextra -pedantic-errors -Wdouble-promotion -Wfloat-conversion -Wformat=2 -Wshadow -Wunreachable-code -Wno-implicit-fallthrough -Wno-switch -Wno-unused-parameter $<$<NOT:$<BOOL:${MINGW}>>:-Wdouble-promotion>)
 	if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
-		set(FLG_ANY "${FLG_ANY} -Wcast-align=strict -Wduplicated-cond")
+		add_compile_options(-Wcast-align=strict -Wduplicated-cond)
 	else()
-		set(FLG_ANY "${FLG_ANY} -Wcast-align -Wnull-dereference -Wover-aligned -Wshadow-all")
+		add_compile_options(-Wcast-align -Wimplicit-int-float-conversion -Wnull-dereference -Wover-aligned -Wshadow-all)
+	endif()
+	if(NATIVE)
+		add_compile_options(-march=native)
+	elseif(CMAKE_SIZEOF_VOID_P EQUAL 8)
+		add_compile_options(-march=x86-64)
+	endif()
+	if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+		add_compile_options("$<$<OR:$<CONFIG:Release>,$<CONFIG:MinSizeRel>>:-flto;-fuse-linker-plugin>")
+		add_link_options("$<$<OR:$<CONFIG:Release>,$<CONFIG:MinSizeRel>>:-flto;-fuse-linker-plugin;-s>")
 	endif()
 	if(MINGW)
-		set(FLG_ANY "${FLG_ANY} -Wl,-subsystem,windows")
-	elseif((CMAKE_C_COMPILER_ID STREQUAL "GNU") AND (NOT CONSOLE))
-		set(FLG_ANY "${FLG_ANY} -rdynamic")
+		add_link_options(-Wl,-subsystem,$<IF:$<BOOL:${CONSOLE}>,console,windows>)
+	elseif(CMAKE_C_COMPILER_ID STREQUAL "GNU" AND NOT CONSOLE)
+		add_link_options(-rdynamic)
 	endif()
-
-	if(NATIVE)
-		set(FLG_ANY "${FLG_ANY} -march=native")
-	elseif(CMAKE_SIZEOF_VOID_P EQUAL 8)
-		set(FLG_ANY "${FLG_ANY} -march=x86-64")
-	endif()
-	set(FLG_DEBUG "-g")
-	set(FLG_RELEASE "-O3")
-	if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
-		set(FLG_RELEASE "${FLG_RELEASE} -flto -fuse-linker-plugin -s")
-	endif()
-endif()
-
-if(CMAKE_CONFIGURATION_TYPES)
-	set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} ${FLG_ANY} ${FLG_DEBUG}")
-	set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} ${FLG_ANY} ${FLG_RELEASE}")
-elseif(CMAKE_BUILD_TYPE STREQUAL "Debug")
-	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${FLG_ANY} ${FLG_DEBUG}")
-else()
-	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${FLG_ANY} ${FLG_RELEASE}")
 endif()
 
 set(DIR_RSC "${CMAKE_SOURCE_DIR}/rsc")
@@ -99,120 +64,145 @@ if(MINGW)
 	target_link_libraries(${PROJECT_NAME} gnurx "${RESOURCE_OBJ}")
 endif()
 
-set(PBOUT_DIR "${CMAKE_BINARY_DIR}/${PROJECT_NAME}")
-set(EXECUTABLE_OUTPUT_PATH "${PBOUT_DIR}/bin")
-set_target_properties(${PROJECT_NAME} PROPERTIES
-	                    RUNTIME_OUTPUT_DIRECTORY "${EXECUTABLE_OUTPUT_PATH}"
-						RUNTIME_OUTPUT_DIRECTORY_DEBUG "${EXECUTABLE_OUTPUT_PATH}"
-						RUNTIME_OUTPUT_DIRECTORY_RELEASE "${EXECUTABLE_OUTPUT_PATH}")
-
-set(DATA_DIR "${PBOUT_DIR}/share/${PROJECT_NAME}")
-add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-	                COMMAND "${CMAKE_COMMAND}" -E make_directory "${DATA_DIR}")
-if(NOT CONSOLE)
-	add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-		                COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${DIR_RSC}/main.glade" "${DATA_DIR}")
+if(APPIMAGE)
+	set(PBOUT_DIR "${CMAKE_BINARY_DIR}/${PROJECT_NAME}.AppDir")
+	set(EXECUTABLE_OUTPUT_PATH "${PBOUT_DIR}/usr/bin")
+	set(DATA_DIR "${PBOUT_DIR}/usr/share/${PROJECT_NAME}")
+else()
+	set(PBOUT_DIR "${CMAKE_BINARY_DIR}/${PROJECT_NAME}")
+	set(EXECUTABLE_OUTPUT_PATH "${PBOUT_DIR}/bin")
+	set(DATA_DIR "${PBOUT_DIR}/share/${PROJECT_NAME}")
 endif()
 
+set_target_properties(${PROJECT_NAME} PROPERTIES
+						RUNTIME_OUTPUT_DIRECTORY "${EXECUTABLE_OUTPUT_PATH}"
+						RUNTIME_OUTPUT_DIRECTORY_DEBUG "${EXECUTABLE_OUTPUT_PATH}"
+						RUNTIME_OUTPUT_DIRECTORY_RELEASE "${EXECUTABLE_OUTPUT_PATH}"
+						RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO "${EXECUTABLE_OUTPUT_PATH}"
+						RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL "${EXECUTABLE_OUTPUT_PATH}")
 if(MINGW)
 	execute_process(COMMAND where gdbus OUTPUT_VARIABLE GDBUS_LOC)
 	string(REGEX REPLACE "\r?\n" ";" GDBUS_LOC "${GDBUS_LOC}")
-	list(GET GDBUS_LOC 0 GDBUS)
-	string(SUBSTRING "${GDBUS}" 0 1 MINGW_DRIVE)
-	string(REGEX REPLACE "^${MINGW_DRIVE}:" "/${MINGW_DRIVE}" GDBUS "${GDBUS}")	# the copy command absolutely shits itself if this path isn't in msys format
+	list(LENGTH GDBUS_LOC GDBUS_LEN)
+	math(EXPR GDBUS_LEN "${GDBUS_LEN} - 1")
+	foreach(ID RANGE ${GDBUS_LEN})
+		list(GET GDBUS_LOC ${ID} GDBUS)
+		if(GDBUS MATCHES "mingw" OR GDBUS MATCHES "msys")
+			break()
+		endif()
+	endforeach()
+	if(NOT GDBUS)
+		list(GET GDBUS_LOC 0 GDBUS)
+	endif()
 	string(REPLACE "\\" "/" GDBUS "${GDBUS}")
 
-	string(REPLACE "/" ";" MINGW_LOC "${GDBUS}")
-	list(LENGTH MINGW_LOC MINGW_LEN)
-	math(EXPR MINGW_LEN "${MINGW_LEN} - 2")
-	list(SUBLIST MINGW_LOC 0 ${MINGW_LEN} MINGW_LOC)
-	string(REPLACE ";" "/" MINGW_LOC "${MINGW_LOC}")
-	set(THEME_LOC "${MINGW_LOC}/share/icons")
-	set(THEME_DIR "${PBOUT_DIR}/share/icons")
-
-	file(GLOB PIXBUF_LOC "${MINGW_LOC}/lib/gdk-pixbuf-2.0/*")
-	list(GET PIXBUF_LOC 0 PIXBUF_LOC)
-	string(REGEX REPLACE "[\\/]" ";" PIXBUF_DIR "${PIXBUF_LOC}")
-	list(LENGTH PIXBUF_DIR PIXBUF_LEN)
-	math(EXPR PIXBUF_POS "${PIXBUF_LEN} - 3")
-	list(SUBLIST PIXBUF_DIR ${PIXBUF_POS} 3 PIXBUF_DIR)
-	string(REPLACE ";" "/" PIXBUF_DIR "${PIXBUF_DIR}")
-	set(PIXBUF_DIR "${PBOUT_DIR}/${PIXBUF_DIR}")
-
 	add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-						COMMAND ldd "${EXECUTABLE_OUTPUT_PATH}/${PROJECT_NAME}.exe" | grep "'\\/mingw.*\\.dll'" -o | xargs -I{} cp \"{}\" "${EXECUTABLE_OUTPUT_PATH}"
-						COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${GDBUS}" "${EXECUTABLE_OUTPUT_PATH}"
+						COMMAND bash -c "ldd '$<TARGET_FILE:${PROJECT_NAME}>' | grep '/mingw.*\\.dll' -o | xargs -I{} cp '{}' '$<TARGET_FILE_DIR:${PROJECT_NAME}>'"
+						COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${GDBUS}" "$<TARGET_FILE_DIR:${PROJECT_NAME}>")
+	if(NOT CONSOLE)
+		string(REPLACE "/" ";" MINGW_LOC "${GDBUS}")
+		list(LENGTH MINGW_LOC MINGW_LEN)
+		math(EXPR MINGW_LEN "${MINGW_LEN} - 2")
+		list(SUBLIST MINGW_LOC 0 ${MINGW_LEN} MINGW_LOC)
+		string(REPLACE ";" "/" MINGW_LOC "${MINGW_LOC}")
+		set(THEME_LOC "${MINGW_LOC}/share/icons")
+		set(THEME_DIR "${PBOUT_DIR}/share/icons")
+
+		file(GLOB PIXBUF_LOC "${MINGW_LOC}/lib/gdk-pixbuf-2.0/*")
+		list(GET PIXBUF_LOC 0 PIXBUF_LOC)
+		string(REGEX REPLACE "[\\/]" ";" PIXBUF_DIR "${PIXBUF_LOC}")
+		list(LENGTH PIXBUF_DIR PIXBUF_LEN)
+		math(EXPR PIXBUF_POS "${PIXBUF_LEN} - 3")
+		list(SUBLIST PIXBUF_DIR ${PIXBUF_POS} 3 PIXBUF_DIR)
+		string(REPLACE ";" "/" PIXBUF_DIR "${PIXBUF_DIR}")
+		set(PIXBUF_DIR "${PBOUT_DIR}/${PIXBUF_DIR}")
+
+		add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
 						COMMAND "${CMAKE_COMMAND}" -E copy_directory "${THEME_LOC}/Adwaita/16x16" "${THEME_DIR}/Adwaita/16x16"
 						COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${THEME_LOC}/Adwaita/icon-theme.cache" "${THEME_LOC}/Adwaita/index.theme" "${THEME_DIR}/Adwaita"
 						COMMAND "${CMAKE_COMMAND}" -E copy_directory "${THEME_LOC}/hicolor/16x16" "${THEME_DIR}/hicolor/16x16"
 						COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${THEME_LOC}/hicolor/icon-theme.cache" "${THEME_LOC}/hicolor/index.theme" "${THEME_DIR}/hicolor"
 						COMMAND "${CMAKE_COMMAND}" -E copy_directory "${PIXBUF_LOC}" "${PIXBUF_DIR}")
-else()
-	add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-						COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${DIR_RSC}/${PROJECT_NAME}.desktop" "${PBOUT_DIR}")
+	endif()
 endif()
 
+if(APPIMAGE OR NOT CONSOLE)
+	add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+						COMMAND "${CMAKE_COMMAND}" -E make_directory "${DATA_DIR}"
+						COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${DIR_RSC}/${PROJECT_NAME}.png" "$<$<NOT:$<BOOL:${CONSOLE}>>:${DIR_RSC}/main.glade>" "${DATA_DIR}")
+endif()
 if(NOT CONSOLE)
+	find_program(GTK_TOOL "gtk-builder-tool")
+	if(GTK_TOOL)
+		add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+							COMMAND "${GTK_TOOL}" simplify --replace "${DATA_DIR}/main.glade")
+	else()
+		message(WARNING "Can't simplify the glade file: Failed to find gtk-builder-tool")
+	endif()
+
 	find_program(SED "sed")
 	if(SED)
 		add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-			                COMMAND "${DIR_RSC}/spacerm.sh" "${DATA_DIR}/main.glade")
+							COMMAND "${SED}" -i "'s/^\\s*</</g;/<!--.*/d'" "${DATA_DIR}/main.glade")
 	else()
 		message(WARNING "Can't reduce the size of the glade file: Failed to find sed")
 	endif()
+
 	find_program(GZIP "gzip")
-	add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-		                COMMAND "${GZIP}" -f "${DATA_DIR}/main.glade")
+	if(GZIP)
+		add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+							COMMAND "${GZIP}" -f "${DATA_DIR}/main.glade")
+	else()
+		message(WARNING "Can't compress the glade file: Failed to find gzip")
+	endif()
 endif()
 
-if((CMAKE_CXX_COMPILER_ID MATCHES "Clang") AND (NOT CMAKE_BUILD_TYPE STREQUAL "Debug"))
+if(CMAKE_C_COMPILER_ID STREQUAL "Clang")
 	find_program(STRIPPER "strip")
 	if(STRIPPER)
 		add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-			                COMMAND "${STRIPPER}" -s "${EXECUTABLE_OUTPUT_PATH}/${PROJECT_NAME}")
+							COMMAND "$<$<OR:$<CONFIG:Release>,$<CONFIG:MinSizeRel>>:${STRIPPER};-s;$<TARGET_FILE:${PROJECT_NAME}>>"
+							COMMAND_EXPAND_LISTS)
 	else()
 		message(WARNING "Can't strip the executable: Failed to find strip")
 	endif()
 endif()
 
 if(APPIMAGE)
-	add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-		                COMMAND "${CMAKE_COMMAND}" -E create_symlink "bin/${PROJECT_NAME}" "${PBOUT_DIR}/AppRun"
-						COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${DIR_RSC}/${PROJECT_NAME}.png" "${PBOUT_DIR}")
-
-	find_program(APPIMAGETOOL "appimagetool")
-	if(APPIMAGETOOL)
-		add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-			                COMMAND "${APPIMAGETOOL}" "${PBOUT_DIR}"
-							COMMAND "${CMAKE_COMMAND}" -E rename "${CMAKE_BINARY_DIR}/${PROJECT_NAME}-*.AppImage" "${CMAKE_BINARY_DIR}/${PROJECT_NAME}.AppImage")
-	else()
-		message(WARNING "Can't create an AppImage: Failed to find appimagetool")
+	find_program(LINUXDEPLOY "linuxdeploy")
+	if(NOT LINUXDEPLOY)
+		message(WARNING "Can't deploy the AppImage: Failed to find linuxdeploy")
 	endif()
-else()
 	add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-		                COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${DIR_RSC}/${PROJECT_NAME}.png" "${DATA_DIR}")
+						COMMAND "${CMAKE_COMMAND}" -E create_symlink "usr/bin/${PROJECT_NAME}" "${PBOUT_DIR}/AppRun"
+						COMMAND "${CMAKE_COMMAND}" -E create_symlink "usr/share/${PROJECT_NAME}/${PROJECT_NAME}.png" "${PBOUT_DIR}/${PROJECT_NAME}.png"
+						COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${DIR_RSC}/${PROJECT_NAME}.desktop" "${PBOUT_DIR}"
+						COMMAND "$<$<BOOL:${LINUXDEPLOY}>:${LINUXDEPLOY};--appdir;${PBOUT_DIR};--output;appimage>"
+						COMMAND_EXPAND_LISTS)
 endif()
 
 if(APPIMAGE)
 	install(FILES "${CMAKE_BINARY_DIR}/${PROJECT_NAME}.AppImage" DESTINATION "bin")
 else()
 	install(TARGETS ${PROJECT_NAME} DESTINATION "bin")
-	install(DIRECTORY "${DATA_DIR}" DESTINATION "share")
+	if(NOT CONSOLE)
+		install(DIRECTORY "${DATA_DIR}" DESTINATION "share")
+	endif()
 endif()
 
 if(APPIMAGE)
 	add_custom_target("uninstall"
-		                COMMAND "${CMAKE_COMMAND}" -E remove -f "${CMAKE_INSTALL_PREFIX}/bin/${PROJECT_NAME}.AppImage"
+						COMMAND "${CMAKE_COMMAND}" -E remove -f "${CMAKE_INSTALL_PREFIX}/bin/${PROJECT_NAME}.AppImage"
 						WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 else()
 	add_custom_target("uninstall"
-		                COMMAND "${CMAKE_COMMAND}" -E remove -f "${CMAKE_INSTALL_PREFIX}/bin/${PROJECT_NAME}"
+						COMMAND "${CMAKE_COMMAND}" -E remove -f "${CMAKE_INSTALL_PREFIX}/bin/${PROJECT_NAME}"
 						COMMAND "${CMAKE_COMMAND}" -E remove_directory "${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME}"
 						WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 endif()
 
 enable_testing()
-add_test(NAME "tests" COMMAND "${DIR_RSC}/test.sh" "$<TARGET_FILE:${PROJECT_NAME}>")
+add_test(NAME "tests" COMMAND bash -c "${DIR_RSC}/test.sh $<TARGET_FILE:${PROJECT_NAME}>")
 
 foreach(FSRC IN LISTS SRC_FILES)
 	get_filename_component(FGRP "${FSRC}" DIRECTORY)

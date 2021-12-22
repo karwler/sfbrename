@@ -55,7 +55,7 @@ static DestinationMode parseDestinationMode(gchar* mode) {
 
 void processArgumentOptions(Arguments* arg) {
 	arg->extensionMode = parseRenameMode(arg->extensionModeStr, &arg->extensionName, &arg->extensionReplace);
-	arg->extensionElements = CLAMP(arg->extensionElements, -FILENAME_MAX + 1, FILENAME_MAX - 1);
+	arg->extensionElements = CLAMP(arg->extensionElements, -1, FILENAME_MAX - 1);
 	arg->renameMode = parseRenameMode(arg->renameModeStr, &arg->rename, &arg->replace);
 
 	arg->removeFrom = CLAMP(arg->removeFrom, -FILENAME_MAX + 1, FILENAME_MAX - 1);
@@ -87,6 +87,7 @@ void processArgumentOptions(Arguments* arg) {
 
 void initCommandLineArguments(GApplication* app, Arguments* arg, int argc, char** argv) {
 	memset(arg, 0, sizeof(Arguments));
+	arg->extensionElements = -1;
 	arg->numberLocation = -1;
 	arg->numberStep = 1;
 	arg->numberBase = 10;

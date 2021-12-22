@@ -2,9 +2,10 @@
 #include "main.h"
 #include "rename.h"
 #include <dirent.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <sys/stat.h>
-#ifdef __MINGW32__
+#ifdef _WIN32
 #include <shlwapi.h>
 #else
 #include <sys/sendfile.h>
@@ -52,7 +53,7 @@ static int copyFile(const char* src, const char* dst) {
 			size_t nlen = strlen(entry->d_name);
 			char* from = joinPath(src, slen, entry->d_name, nlen);
 			char* to = joinPath(dst, dlen, entry->d_name, nlen);
-#ifdef __MINGW32__
+#ifdef _WIN32
 			if (!stat(from, &ps) && S_ISDIR(ps.st_mode))
 				mkdir(to);
 #else
@@ -67,7 +68,7 @@ static int copyFile(const char* src, const char* dst) {
 		return rc;
 	}
 
-#ifdef __MINGW32__
+#ifdef _WIN32
 	int out = creat(dst, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH);
 #else
 	int out = creat(dst, ps.st_mode & (S_ISUID | S_ISGID | S_ISVTX | S_IRWXU | S_IRWXG | S_IRWXO));
@@ -76,7 +77,7 @@ static int copyFile(const char* src, const char* dst) {
 		close(in);
 		return -1;
 	}
-#ifdef __MINGW32__
+#ifdef _WIN32
 	int rc = -1;
 	long bytes = lseek(in, 0, SEEK_END);
 	if (bytes != -1 && lseek(in, 0, SEEK_SET) != -1) {
@@ -95,7 +96,7 @@ static int copyFile(const char* src, const char* dst) {
 	return rc;
 }
 
-#ifdef __MINGW32__
+#ifdef _WIN32
 static wchar* stow(const char* src) {
 	wchar* dst;
 	int len = MultiByteToWideChar(CP_UTF8, 0, src, -1, NULL, 0);
@@ -165,7 +166,7 @@ static size_t replaceRegex(const GRegex* reg, char* name, size_t nameLen, const 
 }
 
 static size_t replaceStrings(char* name, const char* old, ushort olen, const char* new, ushort nlen, bool ci) {
-#ifdef __MINGW32__
+#ifdef _WIN32
 	char* (*scmp)(const char*, const char*) = ci ? StrStrIA : strstr;
 #else
 	char* (*scmp)(const char*, const char*) = ci ? strcasestr : strstr;
@@ -345,28 +346,16 @@ static ResponseType nameNumber(Process* prc, Window* win) {
 }
 
 static size_t processExtension(Process* prc, const char* str, size_t slen) {
-	if (!prc->extensionElements) {
-		char* pos = memchr(str, '.', slen);
-		if (pos == str)
-			pos = memchr(str + 1, '.', slen - 1);
+	if (prc->extensionElements < 0) {
+		bool offs = str[0] == '.';
+		char* pos = memchr(str + offs, '.', slen - offs);
 		prc->nameLen = pos ? (size_t)(pos - str) : slen;
-	} else if (prc->extensionElements > 0) {
+	} else {
 		prc->nameLen = slen;
 		for (int i = 0; i < prc->extensionElements; ++i) {
 			char* pos = memrchr(str, '.', prc->nameLen);
 			if (!pos)
 				break;
-			prc->nameLen = (size_t)(pos - str);
-		}
-	} else {
-		prc->nameLen = 0;
-		for (int i = 0; i > prc->extensionElements; --i) {
-			char* pos = memchr(str, '.', slen - prc->nameLen);
-			if (!pos) {
-				if (!prc->nameLen)
-					prc->nameLen = slen;
-				break;
-			}
 			prc->nameLen = (size_t)(pos - str);
 		}
 	}
@@ -460,47 +449,47 @@ static void freeRegexes(Process* prc) {
 static bool initRename(Process* prc, Arguments* arg, Window* win) {
 	prc->messageBehavior = arg->msgAbort ? MSGBEHAVIOR_ABORT : arg->msgContinue ? MSGBEHAVIOR_CONTINUE : MSGBEHAVIOR_ASK;
 
-	if (!g_utf8_validate_len(prc->extensionName, prc->extensionNameLen, NULL)) {
+	if (!g_utf8_validate(prc->extensionName, prc->extensionNameLen, NULL)) {
 		showMessage(win, MESSAGE_ERROR, BUTTONS_OK, "Invalid UTF-8 extension name");
 		return false;
 	}
-	if (!g_utf8_validate_len(prc->extensionReplace, prc->extensionReplaceLen, NULL)) {
+	if (!g_utf8_validate(prc->extensionReplace, prc->extensionReplaceLen, NULL)) {
 		showMessage(win, MESSAGE_ERROR, BUTTONS_OK, "Invalid UTF-8 extension replace");
 		return false;
 	}
-	if (!g_utf8_validate_len(prc->rename, prc->renameLen, NULL)) {
+	if (!g_utf8_validate(prc->rename, prc->renameLen, NULL)) {
 		showMessage(win, MESSAGE_ERROR, BUTTONS_OK, "Invalid UTF-8 rename name");
 		return false;
 	}
-	if (!g_utf8_validate_len(prc->replace, prc->replaceLen, NULL)) {
+	if (!g_utf8_validate(prc->replace, prc->replaceLen, NULL)) {
 		showMessage(win, MESSAGE_ERROR, BUTTONS_OK, "Invalid UTF-8 rename replace");
 		return false;
 	}
-	if (!g_utf8_validate_len(prc->addInsert, prc->addInsertLen, NULL)) {
+	if (!g_utf8_validate(prc->addInsert, prc->addInsertLen, NULL)) {
 		showMessage(win, MESSAGE_ERROR, BUTTONS_OK, "Invalid UTF-8 add insert string");
 		return false;
 	}
-	if (!g_utf8_validate_len(prc->addPrefix, prc->addPrefixLen, NULL)) {
+	if (!g_utf8_validate(prc->addPrefix, prc->addPrefixLen, NULL)) {
 		showMessage(win, MESSAGE_ERROR, BUTTONS_OK, "Invalid UTF-8 add prefix");
 		return false;
 	}
-	if (!g_utf8_validate_len(prc->addSuffix, prc->addSuffixLen, NULL)) {
+	if (!g_utf8_validate(prc->addSuffix, prc->addSuffixLen, NULL)) {
 		showMessage(win, MESSAGE_ERROR, BUTTONS_OK, "Invalid UTF-8 add suffix");
 		return false;
 	}
-	if (!g_utf8_validate_len(prc->numberPadStr, prc->numberPadStrLen, NULL)) {
+	if (!g_utf8_validate(prc->numberPadStr, prc->numberPadStrLen, NULL)) {
 		showMessage(win, MESSAGE_ERROR, BUTTONS_OK, "Invalid UTF-8 number pad string");
 		return false;
 	}
-	if (!g_utf8_validate_len(prc->numberPrefix, prc->numberPrefixLen, NULL)) {
+	if (!g_utf8_validate(prc->numberPrefix, prc->numberPrefixLen, NULL)) {
 		showMessage(win, MESSAGE_ERROR, BUTTONS_OK, "Invalid UTF-8 number prefix");
 		return false;
 	}
-	if (!g_utf8_validate_len(prc->numberSuffix, prc->numberSuffixLen, NULL)) {
+	if (!g_utf8_validate(prc->numberSuffix, prc->numberSuffixLen, NULL)) {
 		showMessage(win, MESSAGE_ERROR, BUTTONS_OK, "Invalid UTF-8 number suffix");
 		return false;
 	}
-	if (!g_utf8_validate_len(prc->destination, prc->destinationLen, NULL)) {
+	if (!g_utf8_validate(prc->destination, prc->destinationLen, NULL)) {
 		showMessage(win, MESSAGE_ERROR, BUTTONS_OK, "Invalid UTF-8 destination path");
 		return false;
 	}
@@ -723,7 +712,7 @@ static ResponseType processFile(Process* prc, const char* oldn, size_t olen, Win
 	memcpy(prc->dstdir + prc->dstdirLen, oldn, (olen + 1) * sizeof(char));
 	memmove(prc->name + prc->dstdirLen, prc->name, (prc->nameLen + 1) * sizeof(char));
 	memcpy(prc->name, prc->dstdir, prc->dstdirLen * sizeof(char));
-#ifdef __MINGW32__
+#ifdef _WIN32
 	int rc = (int (*const[4])(const char*, const char*)){ rename, rename, copyFile, createSymlink }[prc->destinationMode](prc->dstdir, prc->name);
 #else
 	int rc = (int (*const[4])(const char*, const char*)){ rename, rename, copyFile, symlink }[prc->destinationMode](prc->dstdir, prc->name);
@@ -854,7 +843,7 @@ void windowPreview(Window* win) {
 }
 #endif
 
-#ifdef __MINGW32__
+#ifdef _WIN32
 static char* getWindowsFilepath(const char* path, size_t* plen) {
 	*plen = strlen(path);
 	char* str = malloc((*plen + 1) * sizeof(char));
@@ -874,7 +863,7 @@ void consoleRename(Window* win) {
 
 	ResponseType rc;
 	do {
-#ifdef __MINGW32__
+#ifdef _WIN32
 		size_t plen;
 		char* path = getWindowsFilepath(g_file_peek_path(arg->files[prc->id]), &plen);
 #else
@@ -909,7 +898,7 @@ void consoleRename(Window* win) {
 			}
 		}
 		prc->id += (size_t)prc->step;
-#ifdef __MINGW32__
+#ifdef _WIN32
 		free(path);
 #endif
 	} while ((rc == RESPONSE_NONE || rc == RESPONSE_YES) && prc->id < arg->nFiles);
@@ -924,7 +913,7 @@ void consolePreview(Window* win) {
 
 	ResponseType rc;
 	do {
-#ifdef __MINGW32__
+#ifdef _WIN32
 		size_t olen;
 		char* path = getWindowsFilepath(g_file_peek_path(arg->files[prc->id]), &olen);
 #else
@@ -941,7 +930,7 @@ void consolePreview(Window* win) {
 		if (rc == RESPONSE_NONE)
 			g_print("'%s' -> '%s'\n", oldn, prc->name);
 		prc->id += (size_t)prc->step;
-#ifdef __MINGW32__
+#ifdef _WIN32
 		free(path);
 #endif
 	} while ((rc == RESPONSE_NONE || rc == RESPONSE_YES) && prc->id < arg->nFiles);

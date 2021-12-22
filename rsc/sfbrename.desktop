@@ -1,6 +1,6 @@
 [Desktop Entry]
 Name=sfbrename
-Exec=bin/sfbrename
+Exec=usr/bin/sfbrename
 Icon=sfbrename
 Comment=Tool for batch renaming files
 GenericName=Bulk file renamer

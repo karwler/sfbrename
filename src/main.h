@@ -121,7 +121,7 @@ typedef struct Window {
 	bool dryAuto;
 } Window;
 
-#ifdef __MINGW32__
+#ifdef _WIN32
 void* memrchr(const void* s, int c, size_t n);
 void unbackslashify(char* path);
 #endif
