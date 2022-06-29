@@ -1,22 +1,26 @@
 #include "arguments.h"
+#include "login.h"
 #include "main.h"
 #include "rename.h"
 #include <ctype.h>
+#include <stdatomic.h>
+#include <netdb.h>
+#include <pwd.h>
+#include <sys/mount.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
-#ifndef CONSOLE
-#include <zlib.h>
-#endif
+#include <sys/types.h>
 #ifdef _WIN32
 #include <windows.h>
+#else
+#include <gio/gunixmounts.h>
 #endif
 
-#define MAIN_GLADE_PATH "share/sfbrename/main.glade.gz"
-#define WINDOW_ICON_PATH "share/sfbrename/sfbrename.png"
-#define INFLATED_SIZE 40000
-#define INFLATE_INCREMENT 10000
 #define FILE_URI_PREFIX "file://"
 #define LINE_BREAK_CHARS "\r\n"
 #define DEFAULT_PRINT_BUFFER_SIZE 1024
+#define MNTOPT_TGTPREF "/tmp/sfbrename_%d/"
+#define MNTOPT_FORMAT "username=%s,password=%s,domain=%s,uid=%d,gid=%d,iocharset=utf8,file_mode=0644,dir_mode=0755,noperm"
 #define COLOSSAL_FUCKUP_MESSAGE "Failed to build message"
 #ifdef _WIN32
 #define EXECUTABLE_NAME "sfbrename.exe"
@@ -61,49 +65,146 @@ void unbackslashify(char* path) {
 		if (*path == '\\')
 			*path = '/';
 }
+
+#else
+
+static size_t findMountPoint(MountPoint** mounts, size_t* numMounts, const char* server) {
+	struct addrinfo hints = {
+		.ai_flags = AI_V4MAPPED | AI_ADDRCONFIG,
+		.ai_family = AF_UNSPEC,
+		.ai_socktype = SOCK_STREAM
+	};
+	struct addrinfo* info = NULL;
+	getaddrinfo(server, NULL, &hints, &info);
+
+	MountPoint* mnts = *mounts;
+	for (size_t i = 0; i < *numMounts; ++i) {
+		if (!strcmp(mnts[i].device, server))
+			return i;
+		for (struct addrinfo* in = info; in; in = in->ai_next)
+			if (!strncmp(mnts[i].device, in->ai_addr->sa_data, in->ai_addrlen) && !mnts[i].device[in->ai_addrlen])
+				return i;
+	}
+
+	size_t last = *numMounts;
+	GList* sysmnt = g_unix_mounts_get(NULL);
+	for (GList* it = sysmnt; it; it = it->next) {
+		const char* device = g_unix_mount_get_device_path(it->data);
+		bool found = !strcmp(device, server);
+		for (struct addrinfo* in = info; !found && in; in = in->ai_next)
+			if (!strncmp(device, in->ai_addr->sa_data, in->ai_addrlen) && !device[in->ai_addrlen]) {
+				found = true;
+				break;
+			}
+		if (found) {
+			*mounts = realloc(mnts, ++*numMounts * sizeof(MountPoint));
+			mnts = *mounts;
+
+			const char* target = g_unix_mount_get_mount_path(it->data);
+			size_t targetSiz = (strlen(target) + 1) * sizeof(char);
+			size_t deviceSiz = (strlen(device) + 1) * sizeof(char);
+			mnts[last].device = malloc(deviceSiz);
+			mnts[last].target = malloc(targetSiz);
+			memcpy(mnts[last].device, device, deviceSiz);
+			memcpy(mnts[last].target, target, targetSiz);
+			break;
+		}
+	}
+	g_list_free_full(sysmnt, (GDestroyNotify)g_unix_mount_free);
+	return last;
+}
+
+size_t checkMount(Window* win, const char* file, size_t flen) {
+	if (file[0] == '/' && file[1] != '/')
+		return SIZE_MAX;
+
+	const char* sloc = file + 2;
+	if (strncmp(file, "//", 2)) {
+		sloc = strstr(file, "://");
+		if (!sloc) {
+			showMessage(win, MESSAGE_ERROR, BUTTONS_OK, "Path '%s' has unknown format", file);
+			return win->numMounts;
+		}
+		sloc += 3;
+	}
+	for (; *sloc == '/'; ++sloc);
+	size_t right = file + flen - sloc;;
+	const char* tmp = memchr(sloc, '/', right);
+	size_t slen = tmp ? (size_t)(tmp - sloc) : right;
+	if (slen >= FILENAME_MAX) {
+		showMessage(win, MESSAGE_ERROR, BUTTONS_OK, "Server name is too long");
+		return win->numMounts;
+	}
+
+	char server[FILENAME_MAX];
+	memcpy(server, sloc, slen * sizeof(char));
+	server[slen] = '\0';
+	size_t index = findMountPoint(&win->mounts, &win->numMounts, server);
+	if (index < win->numMounts)
+		return index;
+
+	char pbuf[PATH_MAX];
+	int nlen = snprintf(pbuf, PATH_MAX, MNTOPT_TGTPREF, getpid());
+	if (nlen < 0 || nlen + slen >= PATH_MAX) {
+		showMessage(win, MESSAGE_ERROR, BUTTONS_OK, "Mount path became too long");
+		return win->numMounts;
+	}
+	int dpos = nlen;
+	memcpy(pbuf + nlen, server, (slen + 1) * sizeof(char));
+	nlen += slen;
+
+	LoginDialog ld;
+	if (runLoginDialog(server, &ld) != GTK_RESPONSE_OK)
+		return win->numMounts;
+
+	struct passwd* pw = getpwuid(getuid());
+	const char* username = gtk_entry_get_text(ld.etUser);
+	const char* password = gtk_entry_get_text(ld.etPassword);
+	const char* domain = gtk_entry_get_text(ld.etDomain);
+	size_t optLen = strlen(MNTOPT_FORMAT) + strlen(username) + strlen(password) + strlen(domain) + 22;
+	char* options = malloc(optLen * sizeof(char));
+	snprintf(options, optLen, MNTOPT_FORMAT, username, password, domain, pw->pw_uid, pw->pw_gid);
+	gtk_widget_destroy(GTK_WIDGET(ld.dialog));
+
+	pbuf[dpos] = '\0';
+	mkdir(pbuf, 0700);
+	pbuf[dpos] = '/';
+	mkdir(pbuf, 0700);
+	int rc = mount(server, pbuf, "cifs", MS_BIND, options);
+	free(options);
+	if (rc) {
+		rmdir(pbuf);
+		showMessage(win, MESSAGE_ERROR, BUTTONS_OK, "Mount failed: %s", strerror(errno));
+		return win->numMounts;
+	}
+	win->mounts = realloc(win->mounts, ++win->numMounts * sizeof(MountPoint));
+	win->mounts[win->numMounts - 1].device = malloc((slen + 1) * sizeof(char));
+	win->mounts[win->numMounts - 1].target = malloc((nlen + 1) * sizeof(char));
+	memcpy(win->mounts[win->numMounts - 1].device, server, (slen + 1) * sizeof(char));
+	memcpy(win->mounts[win->numMounts - 1].target, pbuf, (nlen + 1) * sizeof(char));
+	return index;
+}
+
+static void unmountMounts(Window* win) {
+	if (!win->mounts)
+		return;
+	char pbuf[strlen(MNTOPT_TGTPREF) + 11];
+	uint nlen = snprintf(pbuf, sizeof(pbuf) / sizeof(char), MNTOPT_TGTPREF, getpid());
+
+	for (size_t i = 0; i < win->numMounts; ++i) {
+		if (nlen < PATH_MAX && !strncmp(win->mounts[i].target, pbuf, nlen)) {
+			umount(win->mounts[i].target);
+			rmdir(win->mounts[i].target);
+		}
+		free(win->mounts[i].target);
+		free(win->mounts[i].device);
+	}
+	free(win->mounts);
+	rmdir(pbuf);
+}
 #endif
 
 #ifndef CONSOLE
-static char* readGzip(const char* path, size_t* olen) {
-	gzFile file = gzopen(path, "rb");
-	if (!file)
-		return NULL;
-
-	*olen = 0;
-	size_t siz = INFLATED_SIZE;
-	char* str = malloc(siz * sizeof(char));
-	for (;;) {
-		*olen += (size_t)gzread(file, str + *olen, (uint)(siz - *olen) * sizeof(char));
-		if (*olen < siz)
-			break;
-		siz += INFLATE_INCREMENT;
-		str = realloc(str, siz);
-	}
-	gzclose(file);
-	return str;
-}
-
-static char* readFile(const char* path, size_t* olen) {
-	FILE* file = fopen(path, "rb");
-	if (!file || fseek(file, 0, SEEK_END))
-		return NULL;
-	*olen = ftell(file);
-	if (*olen == SIZE_MAX || fseek(file, 0, SEEK_SET))
-		return NULL;
-
-	char* str = malloc(*olen * sizeof(char));
-	size_t rlen = fread(str, sizeof(char), *olen, file);
-	if (!rlen) {
-		free(str);
-		return NULL;
-	}
-	if (rlen < *olen) {
-		*olen = rlen;
-		str = realloc(str, rlen * sizeof(char));
-	}
-	return str;
-}
-
 static void addFile(Window* win, const char* file) {
 	if (!g_utf8_validate(file, -1, NULL)) {
 		showMessage(win, MESSAGE_ERROR, BUTTONS_OK, "Invalid UTF-8 input path");
@@ -114,23 +215,37 @@ static void addFile(Window* win, const char* file) {
 		showMessage(win, MESSAGE_ERROR, BUTTONS_OK, "Path '%s' is too long", file);
 		return;
 	}
-	char path[PATH_MAX];
-	memcpy(path, file, (plen + 1) * sizeof(char));
 
-	char* sep = memrchr(path, '/', plen * sizeof(char));
-	sep = sep ? sep + 1 : path;
-	size_t nlen = (size_t)(path + plen - sep);
+	const char* psep = memrchr(file, '/', plen * sizeof(char));
+	psep = psep ? psep + 1 : file;
+	size_t dlen = psep - file;
+	size_t nlen = plen - dlen;
 	if (nlen >= FILENAME_MAX) {
-		showMessage(win, MESSAGE_ERROR, BUTTONS_OK, "Filename '%s' is too long", sep);
+		showMessage(win, MESSAGE_ERROR, BUTTONS_OK, "Filename '%s' is too long", psep);
 		return;
 	}
+	char dirc[PATH_MAX];
+	const char* dref = dirc;
+#ifdef _WIN32
+	memcpy(dirc, file, (dlen + 1) * sizeof(char));
+	dirc[dlen] = '\0';
+#else
+	size_t smid = checkMount(win, file, plen);
+	if (smid == SIZE_MAX) {
+		memcpy(dirc, file, (dlen + 1) * sizeof(char));
+		dirc[dlen] = '\0';
+	} else {
+		if (smid >= win->numMounts)
+			return;
+		dref = win->mounts[smid].target;
+	}
+#endif
 	char name[FILENAME_MAX];
-	memcpy(name, sep, (nlen + 1) * sizeof(char));
-	*sep = '\0';
+	memcpy(name, psep, (nlen + 1) * sizeof(char));
 
 	GtkTreeIter it;
 	gtk_list_store_append(win->lsFiles, &it);
-	gtk_list_store_set(win->lsFiles, &it, FCOL_OLD_NAME, name, FCOL_NEW_NAME, name, FCOL_DIRECTORY, path, FCOL_INVALID);
+	gtk_list_store_set(win->lsFiles, &it, FCOL_OLD_NAME, name, FCOL_NEW_NAME, name, FCOL_DIRECTORY, dref, FCOL_INVALID);
 }
 
 static void processArgumentFiles(Window* win) {
@@ -853,56 +968,11 @@ static void initWindow(GtkApplication* app, Window* win) {
 	}
 
 	char path[PATH_MAX];
-#ifdef _WIN32
-	wchar* wpath = malloc(PATH_MAX * sizeof(wchar));
-	size_t plen = GetModuleFileNameW(NULL, wpath, PATH_MAX) + 1;
-	if (plen > 1 && plen <= PATH_MAX)
-		plen = WideCharToMultiByte(CP_UTF8, 0, wpath, plen, path, PATH_MAX, NULL, NULL);
-	free(wpath);
-#else
-	size_t plen = (size_t)readlink("/proc/self/exe", path, PATH_MAX);
-#endif
-	if (plen > 1 && plen <= PATH_MAX) {
-#ifdef _WIN32
-		unbackslashify(path);
-#endif
-		char* pos = memrchr(path, '/', --plen);
-		if (pos)
-			pos = memrchr(path, '/', (size_t)(pos - path - (pos != path)));
-
-		plen = (size_t)(pos - path);
-		if (pos && plen + strlen(MAIN_GLADE_PATH) + 2 < PATH_MAX)
-			++plen;
-		else {
-			strcpy(path, "../");
-			plen = strlen(path);
-		}
-	} else {
-		strcpy(path, "../");
-		plen = strlen(path);
-	}
-	strcpy(path + plen, MAIN_GLADE_PATH);
-
-	size_t glen;
-	char* glade = readGzip(path, &glen);
-	if (!glade) {
-		path[plen + strlen(MAIN_GLADE_PATH) - 3] = '\0';
-		glade = readFile(path, &glen);
-		if (!glade) {
-			g_printerr("Failed to read main.glade\n");
-			return;
-		}
-	}
-
-	GtkBuilder* builder = gtk_builder_new();
-	GError* error = NULL;
-	if (!gtk_builder_add_from_string(builder, glade, glen, &error)) {
-		free(glade);
-		g_printerr("Failed to load main.glade: %s\n", error->message);
-		g_clear_error(&error);
+	size_t plen;
+	GtkBuilder* builder = loadUiFile("share/sfbrename/main.glade.gz", path, &plen);
+	if (!builder)
 		return;
-	}
-	free(glade);
+
 	win->window = GTK_APPLICATION_WINDOW(gtk_builder_get_object(builder, "window"));
 	win->btAddFiles = GTK_BUTTON(gtk_builder_get_object(builder, "btAddFiles"));
 	win->btAddFolders = GTK_BUTTON(gtk_builder_get_object(builder, "btAddFolders"));
@@ -960,10 +1030,7 @@ static void initWindow(GtkApplication* app, Window* win) {
 
 	processArgumentFiles(win);
 	activateReset(NULL, win);
-	if (plen + strlen(WINDOW_ICON_PATH) < PATH_MAX) {
-		strcpy(path + plen, WINDOW_ICON_PATH);
-		gtk_window_set_icon_from_file(GTK_WINDOW(win->window), path, NULL);
-	}
+	setWindowIcon(GTK_WINDOW(win->window), path, plen);
 
 	gtk_builder_connect_signals(builder, win);
 	g_object_unref(builder);
@@ -1001,6 +1068,9 @@ int main(int argc, char** argv) {
 	g_signal_connect(win.app, "open", G_CALLBACK(initWindowOpen), &win);
 	initCommandLineArguments(G_APPLICATION(win.app), arg, argc, argv);
 	int rc = g_application_run(G_APPLICATION(win.app), argc, argv);
+#ifndef _WIN32
+	unmountMounts(&win);
+#endif
 	g_object_unref(win.app);
 
 	g_free(arg->extensionName);

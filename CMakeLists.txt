@@ -14,9 +14,15 @@ endif()
 
 find_package(PkgConfig REQUIRED)
 if(CONSOLE)
-	pkg_check_modules(PKGCONFS REQUIRED glib-2.0 gio-2.0)
+    if(WIN32)
+        pkg_check_modules(PKGCONFS REQUIRED glib-2.0 gio-2.0)
+    else()
+        pkg_check_modules(PKGCONFS REQUIRED glib-2.0 gio-2.0 gio-unix-2.0)
+    endif()
+elseif(WIN32)
+    pkg_check_modules(PKGCONFS REQUIRED gtk+-3.0)
 else()
-	pkg_check_modules(PKGCONFS REQUIRED gtk+-3.0)
+    pkg_check_modules(PKGCONFS REQUIRED gtk+-3.0 gio-unix-2.0)
 endif()
 
 include_directories(${PKGCONFS_INCLUDE_DIRS})
@@ -52,6 +58,8 @@ set(SRC_FILES
 	"src/arguments.c"
 	"src/arguments.h"
 	"src/common.h"
+	"src/login.h"
+	"src/login.c"
 	"src/main.c"
 	"src/main.h"
 	"src/rename.c"
@@ -129,13 +137,15 @@ endif()
 if(APPIMAGE OR NOT CONSOLE)
 	add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
 						COMMAND "${CMAKE_COMMAND}" -E make_directory "${DATA_DIR}"
-						COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${DIR_RSC}/${PROJECT_NAME}.png" "$<$<NOT:$<BOOL:${CONSOLE}>>:${DIR_RSC}/main.glade>" "${DATA_DIR}")
+						COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${DIR_RSC}/${PROJECT_NAME}.png" "$<$<NOT:$<BOOL:${CONSOLE}>>:${DIR_RSC}/main.glade>" "$<$<AND:$<NOT:$<BOOL:${CONSOLE}>>,$<NOT:$<BOOL:${WIN32}>>>:${DIR_RSC}/login.glade>" "${DATA_DIR}")
 endif()
 if(NOT CONSOLE)
 	find_program(GTK_TOOL "gtk-builder-tool")
 	if(GTK_TOOL)
 		add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-							COMMAND "${GTK_TOOL}" simplify --replace "${DATA_DIR}/main.glade")
+							COMMAND "${GTK_TOOL}" simplify --replace "${DATA_DIR}/main.glade"
+							COMMAND "$<$<NOT:$<BOOL:${WIN32}>>:${GTK_TOOL};simplify;--replace;${DATA_DIR}/login.glade>"
+							COMMAND_EXPAND_LISTS)
 	else()
 		message(WARNING "Can't simplify the glade file: Failed to find gtk-builder-tool")
 	endif()
@@ -143,7 +153,7 @@ if(NOT CONSOLE)
 	find_program(SED "sed")
 	if(SED)
 		add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-							COMMAND bash -c "${DIR_RSC}/spacerm.sh ${DATA_DIR}/main.glade")
+							COMMAND "${SED}" -i "'s/^\\s*</</g;/<!--.*/d'" "${DATA_DIR}/main.glade" "$<$<NOT:$<BOOL:${WIN32}>>:${DATA_DIR}/login.glade>")
 	else()
 		message(WARNING "Can't reduce the size of the glade file: Failed to find sed")
 	endif()
@@ -151,7 +161,7 @@ if(NOT CONSOLE)
 	find_program(GZIP "gzip")
 	if(GZIP)
 		add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-							COMMAND "${GZIP}" -f "${DATA_DIR}/main.glade")
+							COMMAND "${GZIP}" -f "${DATA_DIR}/main.glade" "$<$<NOT:$<BOOL:${WIN32}>>:${DATA_DIR}/login.glade>")
 	else()
 		message(WARNING "Can't compress the glade file: Failed to find gzip")
 	endif()

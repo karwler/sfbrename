@@ -681,7 +681,17 @@ static bool initDestination(Process* prc, Window* win) {
 		prc->dstdirLen = 0;
 		return true;
 	}
-
+#ifndef _WIN32
+	size_t smid = checkMount(win, prc->destination, prc->destinationLen);
+	if (smid != SIZE_MAX) {
+		if (smid >= win->numMounts) {
+			freeRegexes(prc);
+			return false;
+		}
+		prc->destination = win->mounts[smid].target;
+		prc->destinationLen = strlen(prc->destination);
+	}
+#endif
 	struct stat ps;
 	if (stat(prc->destination, &ps) || !S_ISDIR(ps.st_mode)) {
 		showMessage(win, MESSAGE_ERROR, BUTTONS_OK, "Destination '%s' is not a valid directory", prc->destination);

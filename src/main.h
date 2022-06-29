@@ -52,12 +52,23 @@ typedef enum ButtonsType {
 typedef struct Arguments Arguments;
 typedef struct Process Process;
 
+#ifndef _WIN32
+typedef struct MountPoint {
+	char* device;
+	char* target;
+} MountPoint;
+#endif
+
 typedef struct Window {
 	Process* proc;
 #ifdef CONSOLE
 	GApplication* app;
 #else
 	GtkApplication* app;
+#endif
+#ifndef _WIN32
+	MountPoint* mounts;
+	size_t numMounts;
 #endif
 	Arguments* args;
 
@@ -124,6 +135,8 @@ typedef struct Window {
 #ifdef _WIN32
 void* memrchr(const void* s, int c, size_t n);
 void unbackslashify(char* path);
+#else
+size_t checkMount(Window* win, const char* file, size_t flen);
 #endif
 #ifndef CONSOLE
 void autoPreview(Window* win);
