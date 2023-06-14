@@ -10,8 +10,11 @@
 #include <windows.h>
 #endif
 
-#define MAIN_GLADE_PATH "share/sfbrename/main.glade.gz"
-#define WINDOW_ICON_PATH "share/sfbrename/sfbrename.png"
+#define RSC_PATH "share/sfbrename/"
+#define MAIN_GLADE_NAME "main.glade.gz"
+#define WINDOW_ICON_NAME "sfbrename.png"
+#define LICENSE_NAME "LICENSE.gz"
+#define RSC_NAME_RESERVE 16
 #define INFLATED_SIZE 40000
 #define INFLATE_INCREMENT 10000
 #define FILE_URI_PREFIX "file://"
@@ -69,17 +72,19 @@ static char* readGzip(const char* path, size_t* olen) {
 	if (!file)
 		return NULL;
 
-	*olen = 0;
+	size_t len = 0;
 	size_t siz = INFLATED_SIZE;
 	char* str = malloc(siz * sizeof(char));
 	for (;;) {
-		*olen += (size_t)gzread(file, str + *olen, (uint)(siz - *olen) * sizeof(char));
-		if (*olen < siz)
+		len += gzread(file, str + len, (uint)(siz - len) * sizeof(char));
+		if (len < siz)
 			break;
 		siz += INFLATE_INCREMENT;
 		str = realloc(str, siz);
 	}
 	gzclose(file);
+	if (olen)
+		*olen = len;
 	return str;
 }
 
@@ -87,21 +92,36 @@ static char* readFile(const char* path, size_t* olen) {
 	FILE* file = fopen(path, "rb");
 	if (!file || fseek(file, 0, SEEK_END))
 		return NULL;
-	*olen = ftell(file);
-	if (*olen == SIZE_MAX || fseek(file, 0, SEEK_SET))
+	size_t len = ftell(file);
+	if (len == SIZE_MAX || fseek(file, 0, SEEK_SET))
 		return NULL;
 
-	char* str = malloc(*olen * sizeof(char));
-	size_t rlen = fread(str, sizeof(char), *olen, file);
+	char* str = malloc(len * sizeof(char));
+	size_t rlen = fread(str, sizeof(char), len, file);
 	if (!rlen) {
 		free(str);
 		return NULL;
 	}
-	if (rlen < *olen) {
-		*olen = rlen;
+	if (rlen < len) {
+		len = rlen;
 		str = realloc(str, rlen * sizeof(char));
 	}
+	if (olen)
+		*olen = len;
 	return str;
+}
+
+static char* loadTextAsset(Window* win, const char* name, size_t* olen) {
+	size_t nlen = strlen(name);
+	memcpy(win->rscPath + win->rlen, name, (nlen + 1) * sizeof(char));
+	char* text = readGzip(win->rscPath, olen);
+	if (!text) {
+		win->rscPath[win->rlen + nlen - 3] = '\0';
+		text = readFile(win->rscPath, olen);
+		if (!text)
+			g_printerr("Failed to read %s\n", name);
+	}
+	return text;
 }
 
 static void addFile(Window* win, const char* file) {
@@ -309,17 +329,17 @@ static void activateClear(GtkMenuItem* item, Window* win) {
 
 static void activateReset(GtkMenuItem* item, Window* win) {
 	Arguments* arg = win->args;
-	gtk_combo_box_set_active(GTK_COMBO_BOX(win->cmbExtensionMode), (int)arg->extensionMode);
 	gtk_entry_set_text(win->etExtension, arg->extensionName ? arg->extensionName : "");
 	gtk_entry_set_text(win->etExtensionReplace, arg->extensionReplace ? arg->extensionReplace : "");
 	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(win->cbExtensionCi), arg->extensionCi);
 	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(win->cbExtensionRegex), arg->extensionRegex);
 	gtk_spin_button_set_value(win->sbExtensionElements, (double)arg->extensionElements);
-	gtk_combo_box_set_active(GTK_COMBO_BOX(win->cmbRenameMode), (int)arg->renameMode);
+	gtk_combo_box_set_active(GTK_COMBO_BOX(win->cmbExtensionMode), arg->extensionMode);
 	gtk_entry_set_text(win->etRename, arg->rename ? arg->rename : "");
 	gtk_entry_set_text(win->etReplace, arg->replace ? arg->replace : "");
 	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(win->cbReplaceCi), arg->replaceCi);
 	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(win->cbReplaceRegex), arg->replaceRegex);
+	gtk_combo_box_set_active(GTK_COMBO_BOX(win->cmbRenameMode), arg->renameMode);
 	gtk_spin_button_set_value(win->sbRemoveFrom, (double)arg->removeFrom);
 	gtk_spin_button_set_value(win->sbRemoveTo, (double)arg->removeTo);
 	gtk_spin_button_set_value(win->sbRemoveFirst, (double)arg->removeFirst);
@@ -328,7 +348,6 @@ static void activateReset(GtkMenuItem* item, Window* win) {
 	gtk_spin_button_set_value(win->sbAddAt, (double)arg->addAt);
 	gtk_entry_set_text(win->etAddPrefix, arg->addPrefix ? arg->addPrefix : "");
 	gtk_entry_set_text(win->etAddSuffix, arg->addSuffix ? arg->addSuffix : "");
-	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(win->cbNumber), arg->number);
 	gtk_spin_button_set_value(win->sbNumberLocation, (double)arg->numberLocation);
 	gtk_spin_button_set_value(win->sbNumberStart, (double)arg->numberStart);
 	gtk_spin_button_set_value(win->sbNumberStep, (double)arg->numberStep);
@@ -337,10 +356,37 @@ static void activateReset(GtkMenuItem* item, Window* win) {
 	gtk_entry_set_text(win->etNumberPadding, arg->numberPadStr ? arg->numberPadStr : "");
 	gtk_entry_set_text(win->etNumberPrefix, arg->numberPrefix ? arg->numberPrefix : "");
 	gtk_entry_set_text(win->etNumberSuffix, arg->numberSuffix ? arg->numberSuffix : "");
-	gtk_combo_box_set_active(GTK_COMBO_BOX(win->cmbDestinationMode), (int)arg->destinationMode);
+	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(win->cbNumber), arg->number);
+	gtk_entry_set_text(win->etDateFormat, arg->dateFormat ? arg->dateFormat : DEFAULT_DATE_FORMAT);
+	gtk_spin_button_set_value(win->sbDateLocation, (double)arg->dateLocation);
+#ifndef _WIN32
+	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(win->cbDateLinks), arg->dateLinks);
+#endif
+	gtk_combo_box_set_active(GTK_COMBO_BOX(win->cmbDateMode), arg->dateMode);
 	gtk_entry_set_text(win->etDestination, arg->destination ? arg->destination : "");
 	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(win->cbDestinationForward), !arg->backwards);
+	gtk_combo_box_set_active(GTK_COMBO_BOX(win->cmbDestinationMode), arg->destinationMode);
 	win->autoPreview = !arg->noAutoPreview;
+}
+
+static void activateAbout(GtkMenuItem* item, Window* win) {
+	strcpy(win->rscPath + win->rlen, WINDOW_ICON_NAME);
+	GdkPixbuf* icon = gdk_pixbuf_new_from_file(win->rscPath, NULL);
+	char* license = loadTextAsset(win, LICENSE_NAME, NULL);
+	const char* authors[] = { "karwler", NULL };
+	gtk_show_about_dialog(GTK_WINDOW(win->window),
+		"authors", authors,
+		"comments", "For the date format field see the documentation for strftime",
+		"license", license,
+		"license-type", license ? GTK_LICENSE_CUSTOM : GTK_LICENSE_UNKNOWN,
+		"logo", icon,
+		"program-name", "sfbrename",
+		"version", "1.1.0",
+		"website", "https://github.com/karwler/sfbrename",
+		"website-label", "simple fucking bulk rename",
+		NULL
+	);
+	free(license);
 }
 
 G_MODULE_EXPORT void clickOptions(GtkButton* button, Window* win) {
@@ -358,12 +404,17 @@ G_MODULE_EXPORT void clickOptions(GtkButton* button, Window* win) {
 	GtkMenuItem* miReset = GTK_MENU_ITEM(gtk_menu_item_new_with_label("Reset"));
 	g_signal_connect(miReset, "activate", G_CALLBACK(activateReset), win);
 
+	GtkMenuItem* miAbout = GTK_MENU_ITEM(gtk_menu_item_new_with_label("About"));
+	g_signal_connect(miAbout, "activate", G_CALLBACK(activateAbout), win);
+
 	GtkMenu* menu = GTK_MENU(gtk_menu_new());
 	gtk_menu_shell_append(GTK_MENU_SHELL(menu), GTK_WIDGET(miPreview));
 	gtk_menu_shell_append(GTK_MENU_SHELL(menu), GTK_WIDGET(miThread));
 	gtk_menu_shell_append(GTK_MENU_SHELL(menu), gtk_separator_menu_item_new());
 	gtk_menu_shell_append(GTK_MENU_SHELL(menu), GTK_WIDGET(miClear));
 	gtk_menu_shell_append(GTK_MENU_SHELL(menu), GTK_WIDGET(miReset));
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), gtk_separator_menu_item_new());
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), GTK_WIDGET(miAbout));
 	gtk_widget_show_all(GTK_WIDGET(menu));
 	gtk_menu_popup_at_widget(menu, GTK_WIDGET(button), GDK_GRAVITY_SOUTH_WEST, GDK_GRAVITY_NORTH_WEST, NULL);
 }
@@ -533,7 +584,7 @@ static void setTblFilesClipboardText(GtkTreeModel* model, GtkTreeRowReference** 
 		}
 	}
 	text[tlen] = '\0';
-	gtk_clipboard_set_text(gtk_clipboard_get(GDK_SELECTION_CLIPBOARD), text, (int)tlen);
+	gtk_clipboard_set_text(gtk_clipboard_get(GDK_SELECTION_CLIPBOARD), text, tlen);
 	free(text);
 }
 
@@ -624,7 +675,7 @@ static size_t sortColumnInit(GtkTreeViewColumn* column, Window* win, Sorting* so
 	gtk_tree_view_column_set_sort_indicator(column, true);
 
 	*model = gtk_tree_view_get_model(win->tblFiles);
-	return gtk_tree_model_get_iter_first(*model, it) ? (size_t)gtk_tree_model_iter_n_children(*model, NULL) : 0;
+	return gtk_tree_model_get_iter_first(*model, it) ? gtk_tree_model_iter_n_children(*model, NULL) : 0;
 }
 
 static void sortColumnFinish(Window* win, int* order, void* keys) {
@@ -655,7 +706,7 @@ G_MODULE_EXPORT void clickColumnTblFilesName(GtkTreeViewColumn* treeviewcolumn, 
 	qsort(keys, num, sizeof(KeyPos), win->nameSort == SORT_ASC ? strcmpNameAsc : strcmpNameDsc);
 
 	for (i = 0; i < num; ++i) {
-		order[i] = (int)keys[i].pos;
+		order[i] = keys[i].pos;
 		g_free(keys[i].key);
 	}
 	sortColumnFinish(win, order, keys);
@@ -685,14 +736,23 @@ G_MODULE_EXPORT void clickColumnTblFilesDirectory(GtkTreeViewColumn* treeviewcol
 	qsort(keys, num, sizeof(KeyDirPos), win->directorySort == SORT_ASC ? strcmpDirAsc : strcmpDirDsc);
 
 	for (i = 0; i < num; ++i) {
-		order[i] = (int)keys[i].pos;
+		order[i] = keys[i].pos;
 		g_free(keys[i].file);
 		g_free(keys[i].dir);
 	}
 	sortColumnFinish(win, order, keys);
 }
 
+static void validateEtFilename(GtkEntry* entry) {
+	char* str = validateFilename(gtk_entry_get_text(entry));
+	if (str) {
+		gtk_entry_set_text(entry, str);
+		g_free(str);
+	}
+}
+
 G_MODULE_EXPORT void valueChangeEtGeneric(GtkEditable* editable, Window* win) {
+	validateEtFilename(GTK_ENTRY(editable));
 	autoPreview(win);
 }
 
@@ -709,14 +769,16 @@ G_MODULE_EXPORT void toggleCbGeneric(GtkToggleButton* toggleButton, Window* win)
 }
 
 G_MODULE_EXPORT void valueChangeEtExtension(GtkEditable* editable, Window* win) {
-	RenameMode mode = (uint)gtk_combo_box_get_active(GTK_COMBO_BOX(win->cmbExtensionMode));
+	RenameMode mode = gtk_combo_box_get_active(GTK_COMBO_BOX(win->cmbExtensionMode));
 	if (mode != RENAME_RENAME && mode != RENAME_REPLACE)
 		gtk_combo_box_set_active(GTK_COMBO_BOX(win->cmbExtensionMode), RENAME_RENAME);
+	validateEtFilename(GTK_ENTRY(editable));
 	autoPreview(win);
 }
 
 G_MODULE_EXPORT void valueChangeEtExtensionReplace(GtkEditable* editable, Window* win) {
 	gtk_combo_box_set_active(GTK_COMBO_BOX(win->cmbExtensionMode), RENAME_REPLACE);
+	validateEtFilename(GTK_ENTRY(editable));
 	autoPreview(win);
 }
 
@@ -726,14 +788,16 @@ G_MODULE_EXPORT void toggleCbExtensionReplace(GtkToggleButton* toggleButton, Win
 }
 
 G_MODULE_EXPORT void valueChangeEtRename(GtkEditable* editable, Window* win) {
-	RenameMode mode = (uint)gtk_combo_box_get_active(GTK_COMBO_BOX(win->cmbRenameMode));
+	RenameMode mode = gtk_combo_box_get_active(GTK_COMBO_BOX(win->cmbRenameMode));
 	if (mode != RENAME_RENAME && mode != RENAME_REPLACE)
 		gtk_combo_box_set_active(GTK_COMBO_BOX(win->cmbRenameMode), RENAME_RENAME);
+	validateEtFilename(GTK_ENTRY(editable));
 	autoPreview(win);
 }
 
 G_MODULE_EXPORT void valueChangeEtReplace(GtkEditable* editable, Window* win) {
 	gtk_combo_box_set_active(GTK_COMBO_BOX(win->cmbRenameMode), RENAME_REPLACE);
+	validateEtFilename(GTK_ENTRY(editable));
 	autoPreview(win);
 }
 
@@ -749,6 +813,7 @@ G_MODULE_EXPORT void valueChangeSbNumber(GtkSpinButton* spinButton, Window* win)
 
 G_MODULE_EXPORT void valueChangeEtNumber(GtkEditable* editable, Window* win) {
 	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(win->cbNumber), true);
+	validateEtFilename(GTK_ENTRY(editable));
 	autoPreview(win);
 }
 
@@ -756,6 +821,25 @@ G_MODULE_EXPORT void valueChangeEtDestination(GtkEditable* editable, Window* win
 	if (gtk_combo_box_get_active(GTK_COMBO_BOX(win->cmbDestinationMode)) == DESTINATION_IN_PLACE)
 		gtk_combo_box_set_active(GTK_COMBO_BOX(win->cmbDestinationMode), DESTINATION_MOVE);
 	autoPreview(win);
+}
+
+static void valueChangeDate(Window* win) {
+	if (gtk_combo_box_get_active(GTK_COMBO_BOX(win->cmbDateMode)) == DATE_NONE)
+		gtk_combo_box_set_active(GTK_COMBO_BOX(win->cmbDateMode), DATE_MODIFY);
+	autoPreview(win);
+}
+
+G_MODULE_EXPORT void valueChangeEtDate(GtkEditable* editable, Window* win) {
+	validateEtFilename(GTK_ENTRY(editable));
+	valueChangeDate(win);
+}
+
+G_MODULE_EXPORT void valueChangeSbDate(GtkSpinButton* spinButton, Window* win) {
+	valueChangeDate(win);
+}
+
+G_MODULE_EXPORT void toggleCbDate(GtkToggleButton* editable, Window* win) {
+	valueChangeDate(win);
 }
 
 G_MODULE_EXPORT void clickOpenDestination(GtkButton* button, Window* win) {
@@ -780,18 +864,12 @@ G_MODULE_EXPORT void clickPreview(GtkButton* button, Window* win) {
 	windowPreview(win);
 }
 
-static void setThreadCode(Process* prc, ThreadCode code) {
-	g_mutex_lock(&prc->mutex);
-	prc->threadCode = code;
-	g_mutex_unlock(&prc->mutex);
-}
-
 G_MODULE_EXPORT void clickRename(GtkButton* button, Window* win) {
 	Process* prc = win->proc;
 	if (!prc->thread)
 		windowRename(win);
 	else
-		setThreadCode(prc, THREAD_ABORT);
+		prc->threadCode = THREAD_ABORT;
 }
 
 G_MODULE_EXPORT gboolean closeWindow(GtkApplicationWindow* window, GdkEvent* event, Window* win) {
@@ -799,7 +877,7 @@ G_MODULE_EXPORT gboolean closeWindow(GtkApplicationWindow* window, GdkEvent* eve
 	if (prc->thread) {
 		if (showMessage(win, MESSAGE_QUESTION, BUTTONS_YES_NO, "A process is still running.\nDo you want to abort it?") == RESPONSE_NO)
 			return true;
-		setThreadCode(prc, THREAD_DISCARD);
+		prc->threadCode = THREAD_DISCARD;
 		joinThread(prc);
 	}
 	return false;
@@ -831,7 +909,7 @@ static void initWindow(GApplication* app, Window* win) {
 static void initWindowOpen(GApplication* app, GFile** files, int nFiles, const char* hint, Window* win) {
 	Arguments* arg = win->args;
 	arg->files = files;
-	arg->nFiles = (size_t)nFiles;
+	arg->nFiles = nFiles;
 	runConsole(win);
 }
 #else
@@ -850,57 +928,48 @@ static void initWindow(GtkApplication* app, Window* win) {
 		return;
 	}
 
-	char path[PATH_MAX];
+	win->rscPath = malloc(PATH_MAX * sizeof(char));
 #ifdef _WIN32
 	wchar* wpath = malloc(PATH_MAX * sizeof(wchar));
-	size_t plen = GetModuleFileNameW(NULL, wpath, PATH_MAX) + 1;
-	if (plen > 1 && plen <= PATH_MAX)
-		plen = WideCharToMultiByte(CP_UTF8, 0, wpath, plen, path, PATH_MAX, NULL, NULL);
+	win->rlen = GetModuleFileNameW(NULL, wpath, PATH_MAX) + 1;
+	if (win->rlen > 1 && win->rlen <= PATH_MAX)
+		win->rlen = WideCharToMultiByte(CP_UTF8, 0, wpath, win->rlen, win->rscPath, PATH_MAX, NULL, NULL);
 	free(wpath);
 #else
-	size_t plen = (size_t)readlink("/proc/self/exe", path, PATH_MAX);
+	win->rlen = readlink("/proc/self/exe", win->rscPath, PATH_MAX);
 #endif
-	if (plen > 1 && plen <= PATH_MAX) {
+	if (win->rlen > 1 && win->rlen <= PATH_MAX) {
 #ifdef _WIN32
 		unbackslashify(path);
 #endif
-		char* pos = memrchr(path, '/', --plen);
+		char* pos = memrchr(win->rscPath, '/', --win->rlen);
 		if (pos)
-			pos = memrchr(path, '/', (size_t)(pos - path - (pos != path)));
-
-		plen = (size_t)(pos - path);
-		if (pos && plen + strlen(MAIN_GLADE_PATH) + 2 < PATH_MAX)
-			++plen;
-		else {
-			strcpy(path, "../");
-			plen = strlen(path);
-		}
+			pos = memrchr(win->rscPath, '/', pos - win->rscPath - (pos != win->rscPath));
+		win->rlen = pos - win->rscPath + 1;
 	} else {
-		strcpy(path, "../");
-		plen = strlen(path);
+		strcpy(win->rscPath, "../");
+		win->rlen = strlen(win->rscPath);
 	}
-	strcpy(path + plen, MAIN_GLADE_PATH);
+	size_t rslen = strlen(RSC_PATH);
+	win->rscPath = realloc(win->rscPath, win->rlen + rslen + RSC_NAME_RESERVE);
+	memcpy(win->rscPath + win->rlen, RSC_PATH, rslen);
+	win->rlen += rslen;
+	strcpy(win->rscPath + win->rlen, MAIN_GLADE_NAME);
 
 	size_t glen;
-	char* glade = readGzip(path, &glen);
-	if (!glade) {
-		path[plen + strlen(MAIN_GLADE_PATH) - 3] = '\0';
-		glade = readFile(path, &glen);
-		if (!glade) {
-			g_printerr("Failed to read main.glade\n");
-			return;
-		}
-	}
+	char* glade = loadTextAsset(win, MAIN_GLADE_NAME, &glen);
+	if (!glade)
+		return;
 
 	GtkBuilder* builder = gtk_builder_new();
 	GError* error = NULL;
-	if (!gtk_builder_add_from_string(builder, glade, glen, &error)) {
-		free(glade);
+	bool ok = gtk_builder_add_from_string(builder, glade, glen, &error);
+	free(glade);
+	if (!ok) {
 		g_printerr("Failed to load main.glade: %s\n", error->message);
 		g_clear_error(&error);
 		return;
 	}
-	free(glade);
 	win->window = GTK_APPLICATION_WINDOW(gtk_builder_get_object(builder, "window"));
 	win->btAddFiles = GTK_BUTTON(gtk_builder_get_object(builder, "btAddFiles"));
 	win->btAddFolders = GTK_BUTTON(gtk_builder_get_object(builder, "btAddFolders"));
@@ -937,6 +1006,12 @@ static void initWindow(GtkApplication* app, Window* win) {
 	win->etNumberPadding = GTK_ENTRY(gtk_builder_get_object(builder, "etNumberPadding"));
 	win->etNumberPrefix = GTK_ENTRY(gtk_builder_get_object(builder, "etNumberPrefix"));
 	win->etNumberSuffix = GTK_ENTRY(gtk_builder_get_object(builder, "etNumberSuffix"));
+	win->cmbDateMode = GTK_COMBO_BOX_TEXT(gtk_builder_get_object(builder, "cmbDateMode"));
+	win->etDateFormat = GTK_ENTRY(gtk_builder_get_object(builder, "etDateFormat"));
+	win->sbDateLocation = GTK_SPIN_BUTTON(gtk_builder_get_object(builder, "sbDateLocation"));
+#ifndef _WIN32
+	win->cbDateLinks = GTK_CHECK_BUTTON(gtk_builder_get_object(builder, "cbDateLinks"));
+#endif
 	win->cmbDestinationMode = GTK_COMBO_BOX_TEXT(gtk_builder_get_object(builder, "cmbDestinationMode"));
 	win->etDestination = GTK_ENTRY(gtk_builder_get_object(builder, "etDestination"));
 	win->btDestination = GTK_BUTTON(gtk_builder_get_object(builder, "btDestination"));
@@ -945,6 +1020,9 @@ static void initWindow(GtkApplication* app, Window* win) {
 	win->cbDestinationForward = GTK_CHECK_BUTTON(gtk_builder_get_object(builder, "cbDestinationForward"));
 	win->pbRename = GTK_PROGRESS_BAR(gtk_builder_get_object(builder, "pbRename"));
 
+#ifdef _WIN32
+	gtk_widget_destroy(GTK_WIDGET(gtk_builder_get_object(builder, "cbDateLinks")));
+#endif
 	gtk_widget_set_sensitive(GTK_WIDGET(win->btRename), !arg->dry);
 	dragEndTblFiles(GTK_WIDGET(win->tblFiles), NULL, win);
 
@@ -958,10 +1036,8 @@ static void initWindow(GtkApplication* app, Window* win) {
 
 	processArgumentFiles(win);
 	activateReset(NULL, win);
-	if (plen + strlen(WINDOW_ICON_PATH) < PATH_MAX) {
-		strcpy(path + plen, WINDOW_ICON_PATH);
-		gtk_window_set_icon_from_file(GTK_WINDOW(win->window), path, NULL);
-	}
+	strcpy(win->rscPath + win->rlen, WINDOW_ICON_NAME);
+	gtk_window_set_icon_from_file(GTK_WINDOW(win->window), win->rscPath, NULL);
 
 	gtk_builder_connect_signals(builder, win);
 	g_object_unref(builder);
@@ -972,7 +1048,7 @@ static void initWindow(GtkApplication* app, Window* win) {
 static void initWindowOpen(GtkApplication* app, GFile** files, int nFiles, const char* hint, Window* win) {
 	Arguments* arg = win->args;
 	arg->files = files;
-	arg->nFiles = (size_t)nFiles;
+	arg->nFiles = nFiles;
 	if (!arg->noGui)
 		initWindow(app, win);
 	else
@@ -1011,7 +1087,11 @@ int main(int argc, char** argv) {
 	g_free(arg->numberPadStr);
 	g_free(arg->numberPrefix);
 	g_free(arg->numberSuffix);
+	g_free(arg->dateFormat);
 	g_free(arg->destination);
+#ifndef CONSOLE
+	free(win.rscPath);
+#endif
 	free(arg);
 	free(prc);
 	return rc;

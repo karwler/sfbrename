@@ -20,6 +20,8 @@ typedef struct Arguments {
 	char* numberPadStr;
 	char* numberPrefix;
 	char* numberSuffix;
+	char* dateModeStr;
+	char* dateFormat;
 	char* destinationModeStr;
 	char* destination;
 	int64 extensionElements;
@@ -33,10 +35,14 @@ typedef struct Arguments {
 	int64 numberStep;
 	int64 numberBase;
 	int64 numberPadding;
+	int64 dateLocation;
 	gboolean extensionCi;
 	gboolean extensionRegex;
 	gboolean replaceCi;
 	gboolean replaceRegex;
+#ifndef _WIN32
+	gboolean dateLinks;
+#endif
 	gboolean backwards;
 	gboolean noAutoPreview;
 	gboolean noGui;
@@ -46,10 +52,12 @@ typedef struct Arguments {
 
 	RenameMode extensionMode;
 	RenameMode renameMode;
+	DateMode dateMode;
 	DestinationMode destinationMode;
 	bool number;
 } Arguments;
 
+char* validateFilename(const char* name);
 void processArgumentOptions(Arguments* arg);
 void initCommandLineArguments(GApplication* app, Arguments* arg, int argc, char** argv);
 

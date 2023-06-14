@@ -1,8 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Generated with glade 3.38.2 -->
+<!-- Generated with glade 3.40.0 -->
 <interface>
   <requires lib="gtk+" version="3.10"/>
   <object class="GtkAdjustment" id="addAtAdj">
+    <property name="lower">-4095</property>
+    <property name="upper">4095</property>
+    <property name="step-increment">1</property>
+    <property name="page-increment">10</property>
+  </object>
+  <object class="GtkAdjustment" id="dateLocationAdj">
     <property name="lower">-4095</property>
     <property name="upper">4095</property>
     <property name="step-increment">1</property>
@@ -21,21 +27,18 @@
   <object class="GtkAdjustment" id="numberBaseAdj">
     <property name="lower">2</property>
     <property name="upper">64</property>
-    <property name="value">10</property>
     <property name="step-increment">1</property>
     <property name="page-increment">10</property>
   </object>
   <object class="GtkAdjustment" id="numberLocationAdj">
     <property name="lower">-4095</property>
     <property name="upper">4095</property>
-    <property name="value">-1</property>
     <property name="step-increment">1</property>
     <property name="page-increment">10</property>
   </object>
   <object class="GtkAdjustment" id="numberPaddingAdj">
     <property name="lower">1</property>
     <property name="upper">64</property>
-    <property name="value">1</property>
     <property name="step-increment">1</property>
     <property name="page-increment">10</property>
   </object>
@@ -48,7 +51,6 @@
   <object class="GtkAdjustment" id="numberStepAdj">
     <property name="lower">-9.2233720368547758e+18</property>
     <property name="upper">9.2233720368547758e+18</property>
-    <property name="value">1</property>
     <property name="step-increment">1</property>
     <property name="page-increment">10</property>
   </object>
@@ -77,7 +79,6 @@
   <object class="GtkAdjustment" id="sbExtensionElementsAdj">
     <property name="lower">-1</property>
     <property name="upper">4095</property>
-    <property name="value">-1</property>
     <property name="step-increment">1</property>
     <property name="page-increment">10</property>
   </object>
@@ -1018,7 +1019,7 @@ Use a negative index to set one relative the the back</property>
                         <property name="visible">True</property>
                         <property name="can-focus">False</property>
                         <property name="halign">start</property>
-                        <property name="label" translatable="yes">Destination</property>
+                        <property name="label" translatable="yes">Date</property>
                         <attributes>
                           <attribute name="weight" value="bold"/>
                         </attributes>
@@ -1027,6 +1028,143 @@ Use a negative index to set one relative the the back</property>
                         <property name="expand">False</property>
                         <property name="fill">True</property>
                         <property name="position">10</property>
+                      </packing>
+                    </child>
+                    <child>
+                      <!-- n-columns=3 n-rows=2 -->
+                      <object class="GtkGrid">
+                        <property name="visible">True</property>
+                        <property name="can-focus">False</property>
+                        <property name="row-spacing">4</property>
+                        <property name="column-spacing">8</property>
+                        <property name="row-homogeneous">True</property>
+                        <child>
+                          <object class="GtkComboBoxText" id="cmbDateMode">
+                            <property name="visible">True</property>
+                            <property name="can-focus">False</property>
+                            <property name="tooltip-text" translatable="yes">File date type</property>
+                            <property name="active">0</property>
+                            <items>
+                              <item translatable="yes">None</item>
+                              <item translatable="yes">Modify</item>
+                              <item translatable="yes">Access</item>
+                              <item translatable="yes">Change</item>
+                            </items>
+                            <signal name="changed" handler="valueChangeCmbGeneric" swapped="no"/>
+                            <child internal-child="accessible">
+                              <object class="AtkObject" id="cmbDateMode-atkobject">
+                                <property name="AtkObject::accessible-name" translatable="yes">date mode</property>
+                              </object>
+                            </child>
+                          </object>
+                          <packing>
+                            <property name="left-attach">0</property>
+                            <property name="top-attach">0</property>
+                          </packing>
+                        </child>
+                        <child>
+                          <object class="GtkCheckButton" id="cbDateLinks">
+                            <property name="label" translatable="yes">Follow Links</property>
+                            <property name="visible">True</property>
+                            <property name="can-focus">True</property>
+                            <property name="receives-default">False</property>
+                            <property name="tooltip-text" translatable="yes">Follow symlinks when checking the file's date</property>
+                            <property name="draw-indicator">True</property>
+                            <signal name="toggled" handler="toggleCbDate" swapped="no"/>
+                            <child internal-child="accessible">
+                              <object class="AtkObject" id="cbDateLinks-atkobject">
+                                <property name="AtkObject::accessible-name" translatable="yes">follow links</property>
+                              </object>
+                            </child>
+                          </object>
+                          <packing>
+                            <property name="left-attach">0</property>
+                            <property name="top-attach">1</property>
+                          </packing>
+                        </child>
+                        <child>
+                          <object class="GtkLabel">
+                            <property name="visible">True</property>
+                            <property name="can-focus">False</property>
+                            <property name="label" translatable="yes">Format</property>
+                          </object>
+                          <packing>
+                            <property name="left-attach">1</property>
+                            <property name="top-attach">0</property>
+                          </packing>
+                        </child>
+                        <child>
+                          <object class="GtkLabel">
+                            <property name="visible">True</property>
+                            <property name="can-focus">False</property>
+                            <property name="halign">start</property>
+                            <property name="label" translatable="yes">Location</property>
+                          </object>
+                          <packing>
+                            <property name="left-attach">1</property>
+                            <property name="top-attach">1</property>
+                          </packing>
+                        </child>
+                        <child>
+                          <object class="GtkEntry" id="etDateFormat">
+                            <property name="visible">True</property>
+                            <property name="can-focus">True</property>
+                            <property name="tooltip-text" translatable="yes">Date format</property>
+                            <signal name="changed" handler="valueChangeEtDate" swapped="no"/>
+                            <child internal-child="accessible">
+                              <object class="AtkObject" id="etDateFormat-atkobject">
+                                <property name="AtkObject::accessible-name" translatable="yes">date format</property>
+                              </object>
+                            </child>
+                          </object>
+                          <packing>
+                            <property name="left-attach">2</property>
+                            <property name="top-attach">0</property>
+                          </packing>
+                        </child>
+                        <child>
+                          <object class="GtkSpinButton" id="sbDateLocation">
+                            <property name="visible">True</property>
+                            <property name="can-focus">True</property>
+                            <property name="tooltip-text" translatable="yes">Index where to insert the date
+Use a negative index to set one relative the the back</property>
+                            <property name="text" translatable="yes">-1</property>
+                            <property name="adjustment">dateLocationAdj</property>
+                            <property name="numeric">True</property>
+                            <property name="value">-1</property>
+                            <signal name="value-changed" handler="valueChangeSbDate" swapped="no"/>
+                            <child internal-child="accessible">
+                              <object class="AtkObject" id="sbDateLocation-atkobject">
+                                <property name="AtkObject::accessible-name" translatable="yes">date location</property>
+                              </object>
+                            </child>
+                          </object>
+                          <packing>
+                            <property name="left-attach">2</property>
+                            <property name="top-attach">1</property>
+                          </packing>
+                        </child>
+                      </object>
+                      <packing>
+                        <property name="expand">False</property>
+                        <property name="fill">True</property>
+                        <property name="position">11</property>
+                      </packing>
+                    </child>
+                    <child>
+                      <object class="GtkLabel">
+                        <property name="visible">True</property>
+                        <property name="can-focus">False</property>
+                        <property name="halign">start</property>
+                        <property name="label" translatable="yes">Destination</property>
+                        <attributes>
+                          <attribute name="weight" value="bold"/>
+                        </attributes>
+                      </object>
+                      <packing>
+                        <property name="expand">False</property>
+                        <property name="fill">True</property>
+                        <property name="position">12</property>
                       </packing>
                     </child>
                     <child>
@@ -1154,7 +1292,7 @@ Use a negative index to set one relative the the back</property>
                       <packing>
                         <property name="expand">False</property>
                         <property name="fill">True</property>
-                        <property name="position">11</property>
+                        <property name="position">13</property>
                       </packing>
                     </child>
                     <child>
@@ -1167,7 +1305,7 @@ Use a negative index to set one relative the the back</property>
                       <packing>
                         <property name="expand">False</property>
                         <property name="fill">True</property>
-                        <property name="position">12</property>
+                        <property name="position">14</property>
                       </packing>
                     </child>
                   </object>

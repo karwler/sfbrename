@@ -17,6 +17,7 @@
 #include <stdlib.h>
 
 #define MAX_DIGITS_I64B 64
+#define DEFAULT_DATE_FORMAT "%F"
 
 typedef wchar_t wchar;
 typedef unsigned short ushort;
@@ -30,7 +31,7 @@ typedef uint16_t uint16;
 typedef int64_t int64;
 typedef uint64_t uint64;
 
-typedef enum {
+typedef enum RenameMode {
 	RENAME_KEEP,
 	RENAME_RENAME,
 	RENAME_REPLACE,
@@ -39,11 +40,18 @@ typedef enum {
 	RENAME_REVERSE
 } RenameMode;
 
-typedef enum {
+typedef enum DestinationMode {
 	DESTINATION_IN_PLACE,
 	DESTINATION_MOVE,
 	DESTINATION_COPY,
 	DESTINATION_LINK
 } DestinationMode;
+
+typedef enum DateMode {
+	DATE_NONE,
+	DATE_MODIFY,
+	DATE_ACCESS,
+	DATE_CHANGE
+} DateMode;
 
 #endif

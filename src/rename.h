@@ -7,7 +7,8 @@
 typedef enum ThreadCode {
 	THREAD_RUN,
 	THREAD_ABORT,
-	THREAD_DISCARD
+	THREAD_DISCARD,
+	THREAD_SAME = 0x80
 } ThreadCode;
 #endif
 
@@ -22,7 +23,6 @@ typedef struct Window Window;
 typedef struct Process {
 #ifndef CONSOLE
 	GThread* thread;
-	GMutex mutex;
 	GtkTreeModel* model;
 	GtkTreeIter it;
 #endif
@@ -40,17 +40,19 @@ typedef struct Process {
 	const char* numberPadStr;
 	const char* numberPrefix;
 	const char* numberSuffix;
+	const char* dateFormat;
 	const char* destination;
 	size_t nameLen;
 	size_t dstdirLen;
+	int64 numberStart;
+	int64 numberStep;
 #ifndef CONSOLE
-	ThreadCode threadCode;
+	_Atomic ThreadCode threadCode;
 #endif
 	MessageBehavior messageBehavior;
 	RenameMode extensionMode;
 	RenameMode renameMode;
-	int64 numberStart;
-	int64 numberStep;
+	DateMode dateMode;
 	DestinationMode destinationMode;
 	ushort extensionNameLen;
 	ushort extensionReplaceLen;
@@ -70,6 +72,8 @@ typedef struct Process {
 	ushort numberPadStrLen;
 	ushort numberPrefixLen;
 	ushort numberSuffixLen;
+	ushort dateFormatLen;
+	short dateLocation;
 	ushort destinationLen;
 	bool extensionCi;
 	bool extensionRegex;
@@ -77,10 +81,14 @@ typedef struct Process {
 	bool replaceRegex;
 	bool number;
 	uint8 numberBase;
+#ifndef _WIN32
+	bool dateLinks;
+#endif
 	bool forward;
 	int8 step;
-	char name[PATH_MAX];
+	char name[FILENAME_MAX];
 	char extension[FILENAME_MAX];
+	char original[PATH_MAX];
 	char dstdir[PATH_MAX];
 } Process;
 

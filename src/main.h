@@ -3,7 +3,7 @@
 
 #include "common.h"
 
-typedef enum {
+typedef enum FileColumn {
 	FCOL_INVALID = -1,
 	FCOL_OLD_NAME,
 	FCOL_NEW_NAME,
@@ -62,6 +62,9 @@ typedef struct Window {
 	Arguments* args;
 
 #ifndef CONSOLE
+	char* rscPath;
+	size_t rlen;
+
 	GtkApplicationWindow* window;
 	GtkButton* btAddFiles;
 	GtkButton* btAddFolders;
@@ -104,6 +107,13 @@ typedef struct Window {
 	GtkEntry* etNumberPadding;
 	GtkEntry* etNumberPrefix;
 	GtkEntry* etNumberSuffix;
+
+	GtkComboBoxText* cmbDateMode;
+	GtkEntry* etDateFormat;
+	GtkSpinButton* sbDateLocation;
+#ifndef _WIN32
+	GtkCheckButton* cbDateLinks;
+#endif
 
 	GtkComboBoxText* cmbDestinationMode;
 	GtkEntry* etDestination;

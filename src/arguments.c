@@ -1,19 +1,50 @@
 #include "arguments.h"
 
-static void checkArgName(gchar** name) {
+#ifdef _WIN32
+#define INVALID_FNCHARS "\"*/:<>?\\|\x01\x02\x03\x04\x05\x06\x07\x08\x09\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x20\x21\x22\x23\x24\x25\x26\x27\x28\x29\x30\x31"
+#else
+#define INVALID_FNCHARS "/"
+#endif
+
+char* validateFilename(const char* name) {
+	const char* pos = strpbrk(name, INVALID_FNCHARS);
+	if (!pos)
+		return NULL;
+
+	char* str = g_malloc(strlen(name) * sizeof(char));
+	char* out = str;
+	const char* last = name;
+	do {
+		size_t len = pos - last;
+		memcpy(out, last, len);
+		out += len;
+		last = pos + 1;
+		pos = strpbrk(last, INVALID_FNCHARS);
+	} while (pos);
+	strcpy(out, last);
+	return str;
+}
+
+static void checkArgName(gchar** name, bool validate) {
 	if (*name) {
 		size_t len = strlen(*name);
 		if (len >= FILENAME_MAX) {
 			g_printerr("Filename '%s' is too long\n", *name);
 			g_free(*name);
 			*name = NULL;
+		} else {
+			char* str = validateFilename(*name);
+			if (str) {
+				g_free(*name);
+				*name = str;
+			}
 		}
 	}
 }
 
 static RenameMode parseRenameMode(gchar* mode, char** name, char** replace) {
-	checkArgName(name);
-	checkArgName(replace);
+	checkArgName(name, true);
+	checkArgName(replace, true);
 
 	RenameMode rm = RENAME_KEEP;
 	if (*replace)
@@ -37,6 +68,22 @@ static RenameMode parseRenameMode(gchar* mode, char** name, char** replace) {
 	return rm;
 }
 
+static DateMode parseDateMode(gchar* mode) {
+	if (!mode)
+		return DATE_NONE;
+
+	DateMode dm = DATE_NONE;
+	llong id = strtoll(mode, NULL, 0);
+	if (id == DATE_MODIFY || !strcasecmp(mode, "m") || !strcasecmp(mode, "modify"))
+		dm = DATE_MODIFY;
+	else if (id == DATE_ACCESS || !strcasecmp(mode, "a") || !strcasecmp(mode, "access"))
+		dm = DATE_ACCESS;
+	else if (id == DATE_CHANGE || !strcasecmp(mode, "c") || !strcasecmp(mode, "change"))
+		dm = DATE_CHANGE;
+	g_free(mode);
+	return dm;
+}
+
 static DestinationMode parseDestinationMode(gchar* mode) {
 	if (!mode)
 		return DESTINATION_IN_PLACE;
@@ -45,9 +92,9 @@ static DestinationMode parseDestinationMode(gchar* mode) {
 	llong id = strtoll(mode, NULL, 0);
 	if (id == DESTINATION_MOVE || !strcasecmp(mode, "m") || !strcasecmp(mode, "move"))
 		dm = DESTINATION_MOVE;
-	if (id == DESTINATION_COPY || !strcasecmp(mode, "c") || !strcasecmp(mode, "copy"))
+	else if (id == DESTINATION_COPY || !strcasecmp(mode, "c") || !strcasecmp(mode, "copy"))
 		dm = DESTINATION_COPY;
-	if (id == DESTINATION_LINK || !strcasecmp(mode, "l") || !strcasecmp(mode, "link"))
+	else if (id == DESTINATION_LINK || !strcasecmp(mode, "l") || !strcasecmp(mode, "link"))
 		dm = DESTINATION_LINK;
 	g_free(mode);
 	return dm;
@@ -64,25 +111,28 @@ void processArgumentOptions(Arguments* arg) {
 	arg->removeLast = CLAMP(arg->removeLast, 0, FILENAME_MAX - 1);
 
 	arg->addAt = CLAMP(arg->addAt, -FILENAME_MAX + 1, FILENAME_MAX - 1);
-	checkArgName(&arg->addInsert);
-	checkArgName(&arg->addPrefix);
-	checkArgName(&arg->addSuffix);
+	checkArgName(&arg->addInsert, true);
+	checkArgName(&arg->addPrefix, true);
+	checkArgName(&arg->addSuffix, true);
 
 	arg->numberLocation = CLAMP(arg->numberLocation, -FILENAME_MAX + 1, FILENAME_MAX);
 	arg->numberStart = MAX(arg->numberStart, -INT64_MAX);
 	arg->numberStep = MAX(arg->numberStep, -INT64_MAX);
 	arg->numberBase = CLAMP(arg->numberBase, 2, 64);
 	arg->numberPadding = CLAMP(arg->numberPadding, 1, MAX_DIGITS_I64B);
-	checkArgName(&arg->numberPadStr);
+	checkArgName(&arg->numberPadStr, true);
 	if (!arg->numberPadStr) {
 		arg->numberPadStr = g_malloc(2 * sizeof(char));
 		strcpy(arg->numberPadStr, "0");
 	}
-	checkArgName(&arg->numberPrefix);
-	checkArgName(&arg->numberSuffix);
+	checkArgName(&arg->numberPrefix, true);
+	checkArgName(&arg->numberSuffix, true);
+
+	arg->dateMode = parseDateMode(arg->dateModeStr);
+	arg->dateLocation = CLAMP(arg->dateLocation, -FILENAME_MAX + 1, FILENAME_MAX);
 
 	arg->destinationMode = parseDestinationMode(arg->destinationModeStr);
-	checkArgName(&arg->destination);
+	checkArgName(&arg->destination, false);
 }
 
 void initCommandLineArguments(GApplication* app, Arguments* arg, int argc, char** argv) {
@@ -92,6 +142,7 @@ void initCommandLineArguments(GApplication* app, Arguments* arg, int argc, char*
 	arg->numberStep = 1;
 	arg->numberBase = 10;
 	arg->numberPadding = 1;
+	arg->dateLocation = -1;
 
 	const char* extMsg = "\n\tSet how to change a filename's extension.\n\n"
 "1. Replace the extension with the string set by --extension-name.\n   This option is set with \"rename\", \"n\" or \"1\".\n"
@@ -122,6 +173,12 @@ void initCommandLineArguments(GApplication* app, Arguments* arg, int argc, char*
 		{ "add-at", 'k', G_OPTION_FLAG_NONE, G_OPTION_ARG_INT64, &arg->addAt, "\n\tInsert the string set by --add-insert at this index.\n\tA negative index can be used to set a location relative to a filename's length.\n\tDefault value is 0.\n", "INDEX" },
 		{ "add-prefix", 'p', G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING, &arg->addPrefix, "\n\tPrefix filenames with this string.\n", "STRING" },
 		{ "add-suffix", 's', G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING, &arg->addSuffix, "\n\tSuffix filenames with this string.\n", "STRING" },
+		{ "date-mode", 'e', G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING, &arg->dateModeStr, "\n\tSet whether to insert the file's modification, access or status change date.\n\tThis option can be set with \"modify\", \"access\", \"change\", their first letters or indices 0 - 3.\n\tDefault value is 0.\n", "MODE" },
+		{ "date-format", 'q', G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING, &arg->dateFormat, "\n\tHow the date will be formatted.\n\tDefault value is " DEFAULT_DATE_FORMAT "\".\n", "STRING" },
+		{ "date-location", 'O', G_OPTION_FLAG_NONE, G_OPTION_ARG_INT64, &arg->dateLocation, "\n\tAn index where to insert a date into a filename.\n\tA negative index can be used to set a location relative to a filename's length.\n\tDefault value is -1.\n", "INDEX" },
+#ifndef _WIN32
+		{ "date-follow-links", 'F', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE, &arg->dateLinks, "\n\tWhether to follow symlinks when checking the file's date.\n", NULL },
+#endif
 		{ "destination-mode", 'D', G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING, &arg->destinationModeStr, "\n\tSet whether to rename the files in place, move them, copy them or create symlinks to them.\n\tThis option can be set with \"in-place\", \"move\", \"copy\", \"link\", their first letters or indices 0 - 3.\n\tDefault value is 0.\n", "MODE" },
 		{ "destination", 'd', G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING, &arg->destination, "\n\tSet the destination directory when --destination-mode isn't set to \"in place\".\n", "DIRECTORY" },
 		{ "extension-mode", 'M', G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING, &arg->extensionModeStr, extMsg, "MODE" },

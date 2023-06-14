@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.12.4)
-project(sfbrename VERSION 1.0.0 DESCRIPTION "Tool for batch renaming files" HOMEPAGE_URL "https://github.com/karwler/sfbrename" LANGUAGES C)
+project(sfbrename VERSION 1.1.0 DESCRIPTION "Tool for batch renaming files" HOMEPAGE_URL "https://github.com/karwler/sfbrename" LANGUAGES C)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
@@ -129,7 +129,7 @@ endif()
 if(APPIMAGE OR NOT CONSOLE)
 	add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
 						COMMAND "${CMAKE_COMMAND}" -E make_directory "${DATA_DIR}"
-						COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${DIR_RSC}/${PROJECT_NAME}.png" "$<$<NOT:$<BOOL:${CONSOLE}>>:${DIR_RSC}/main.glade>" "${DATA_DIR}")
+						COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${DIR_RSC}/${PROJECT_NAME}.png" "$<$<NOT:$<BOOL:${CONSOLE}>>:${DIR_RSC}/main.glade>" "${CMAKE_SOURCE_DIR}/LICENSE" "${DATA_DIR}")
 endif()
 if(NOT CONSOLE)
 	find_program(GTK_TOOL "gtk-builder-tool")
@@ -151,7 +151,8 @@ if(NOT CONSOLE)
 	find_program(GZIP "gzip")
 	if(GZIP)
 		add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-							COMMAND "${GZIP}" -f "${DATA_DIR}/main.glade")
+							COMMAND "${GZIP}" -f "${DATA_DIR}/main.glade"
+							COMMAND "${GZIP}" -f "${DATA_DIR}/LICENSE")
 	else()
 		message(WARNING "Can't compress the glade file: Failed to find gzip")
 	endif()

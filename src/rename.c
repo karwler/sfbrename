@@ -13,6 +13,9 @@
 
 #define MAX_DIGITS_I32D 10
 #define CONTINUE_TEXT "\nContinue?"
+#ifndef _WIN32
+#define PERMISSION_MASK (S_ISUID | S_ISGID | S_ISVTX | S_IRWXU | S_IRWXO | S_IRWXO)
+#endif
 
 #ifndef CONSOLE
 typedef struct TableUpdate {
@@ -21,80 +24,6 @@ typedef struct TableUpdate {
 	char name[FILENAME_MAX];
 } TableUpdate;
 #endif
-
-static char* joinPath(const char* dir, size_t dlen, const char* file, size_t flen) {
-	char* path = malloc((dlen + flen + 2) * sizeof(char));
-	memcpy(path, dir, dlen * sizeof(char));
-	path[dlen] = '/';
-	memcpy(path + dlen + 1, file, (flen + 1) * sizeof(char));
-	return path;
-}
-
-static int copyFile(const char* src, const char* dst) {
-	int in = open(src, O_RDONLY);
-	if (in == -1)
-		return -1;
-
-	struct stat ps;
-	if (fstat(in, &ps)) {
-		close(in);
-		return -1;
-	}
-	if (S_ISDIR(ps.st_mode)) {
-		close(in);
-		DIR* dir = opendir(src);
-		if (!dir)
-			return -1;
-
-		int rc = 0;
-		size_t slen = strlen(src);
-		size_t dlen = strlen(dst);
-		for (struct dirent* entry = readdir(dir); entry; entry = readdir(dir)) {
-			size_t nlen = strlen(entry->d_name);
-			char* from = joinPath(src, slen, entry->d_name, nlen);
-			char* to = joinPath(dst, dlen, entry->d_name, nlen);
-#ifdef _WIN32
-			if (!stat(from, &ps) && S_ISDIR(ps.st_mode))
-				mkdir(to);
-#else
-			if (entry->d_type == DT_DIR)
-				mkdir(to, !lstat(from, &ps) ? ps.st_mode & (S_ISUID | S_ISGID | S_ISVTX | S_IRWXU | S_IRWXG | S_IRWXO) : S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH);
-#endif
-			rc |= copyFile(from, to);
-			free(from);
-			free(to);
-		}
-		closedir(dir);
-		return rc;
-	}
-
-#ifdef _WIN32
-	int out = creat(dst, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH);
-#else
-	int out = creat(dst, ps.st_mode & (S_ISUID | S_ISGID | S_ISVTX | S_IRWXU | S_IRWXG | S_IRWXO));
-#endif
-	if (out == -1) {
-		close(in);
-		return -1;
-	}
-#ifdef _WIN32
-	int rc = -1;
-	long bytes = lseek(in, 0, SEEK_END);
-	if (bytes != -1 && lseek(in, 0, SEEK_SET) != -1) {
-		uint8* data = malloc(bytes);
-		read(in, data, bytes);
-		write(out, data, bytes);
-		free(data);
-		rc = 0;
-	}
-#else
-	off_t bytes = 0;
-	int rc = sendfile(out, in, &bytes, (size_t)ps.st_size) == -1;
-#endif
-	close(in);
-	close(out);
-	return rc;
-}
 
 #ifdef _WIN32
 static wchar* stow(const char* src) {
@@ -110,17 +39,100 @@ static wchar* stow(const char* src) {
 	return dst;
 }
 
-static int createSymlink(const char* src, const char* dst) {
-	struct stat ps;
-	DWORD flags = !stat(src, &ps) && S_ISDIR(ps.st_mode) ? SYMBOLIC_LINK_FLAG_DIRECTORY : 0;
-	wchar* wsrc = stow(src);
-	wchar* wdst = stow(dst);
-	int rc = CreateSymbolicLinkW(wdst, wsrc, flags);
-	free(wsrc);
-	free(wdst);
-	return rc ? 0 : -1;
+static int createSymlink(const char* path, const char* target) {
+	wchar* wpath = stow(path);
+	wchar* wtarget = stow(target);
+	DWORD attr = GetFileAttributesW(wtarget);
+	DWORD flags = attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY) ? SYMBOLIC_LINK_FLAG_DIRECTORY : 0;
+	int rc = !CreateSymbolicLinkW(wpath, wtarget, flags);
+	free(wpath);
+	free(wtarget);
+	return rc;
 }
 #endif
+
+static char* joinPath(const char* dir, size_t dlen, const char* file, size_t flen) {
+	char* path = malloc((dlen + flen + 2) * sizeof(char));
+	memcpy(path, dir, dlen * sizeof(char));
+	path[dlen] = '/';
+	memcpy(path + dlen + 1, file, (flen + 1) * sizeof(char));
+	return path;
+}
+
+static int copyFile(const char* src, const char* dst) {
+	struct stat ps;
+#ifdef _WIN32
+	if (stat(src, &ps))
+#else
+	if (lstat(src, &ps))
+#endif
+		return -1;
+
+	int rc;
+	switch (ps.st_mode & S_IFMT) {
+	case S_IFDIR: {
+#ifdef _WIN32
+		mkdir(dst);
+#else
+		mkdir(dst, ps.st_mode & PERMISSION_MASK);
+#endif
+		DIR* dir = opendir(src);
+		if (!dir)
+			return -1;
+
+		rc = 0;
+		size_t slen = strlen(src);
+		size_t dlen = strlen(dst);
+		for (struct dirent* entry = readdir(dir); entry; entry = readdir(dir))
+			if (strcmp(entry->d_name, ".") && strcmp(entry->d_name, "..")) {
+				size_t nlen = strlen(entry->d_name);
+				char* from = joinPath(src, slen, entry->d_name, nlen);
+				char* to = joinPath(dst, dlen, entry->d_name, nlen);
+				rc |= copyFile(from, to);
+				free(from);
+				free(to);
+			}
+		closedir(dir);
+		break; }
+	case S_IFREG: {
+#ifdef _WIN32
+		wchar* wsrc = stow(src);
+		wchar* wdst = stow(dst);
+		rc = !CopyFileW(wsrc, wdst, false);
+		free(wsrc);
+		free(wdst);
+#else
+		int in = open(src, O_RDONLY);
+		if (in == -1)
+			return -1;
+
+		int out = creat(dst, ps.st_mode & PERMISSION_MASK);
+		if (out == -1) {
+			close(in);
+			return -1;
+		}
+		rc = sendfile(out, in, NULL, ps.st_size) != -1 ? 0 : errno;
+		close(in);
+		close(out);
+#endif
+		break; }
+#ifndef _WIN32
+	case S_IFLNK: {
+		rc = -1;
+		char* path = malloc((ps.st_size + 1) * sizeof(char));
+		ssize_t len = readlink(src, path, ps.st_size);
+		if (len != -1) {
+			path[len] = '\0';
+			rc = symlink(path, dst);
+		}
+		free(path);
+		break; }
+#endif
+	default:
+		rc = -1;
+	}
+	return rc;
+}
 
 static ResponseType continueError(Process* prc, Window* win, const char* format, ...) {
 	va_list args;
@@ -154,7 +166,7 @@ static ResponseType continueError(Process* prc, Window* win, const char* format,
 }
 
 static size_t replaceRegex(const GRegex* reg, char* name, size_t nameLen, const char* new) {
-	char* str = g_regex_replace(reg, name, (ssize_t)nameLen, 0, new, G_REGEX_MATCH_NEWLINE_ANYCRLF, NULL);
+	char* str = g_regex_replace(reg, name, nameLen, 0, new, G_REGEX_MATCH_NEWLINE_ANYCRLF, NULL);
 	if (!str)
 		return nameLen;
 
@@ -175,7 +187,7 @@ static size_t replaceStrings(char* name, const char* old, ushort olen, const cha
 	size_t blen = 0;
 	char* last = name;
 	for (char* it; (it = scmp(last, old));) {
-		size_t diff = (size_t)(it - last);
+		size_t diff = it - last;
 		if (blen + diff + nlen >= FILENAME_MAX)
 			return SIZE_MAX;
 
@@ -218,13 +230,13 @@ static ResponseType nameRename(Process* prc, Window* win) {
 			prc->nameLen = replaceStrings(prc->name, prc->rename, prc->renameLen, prc->replace, prc->replaceLen, prc->replaceCi);
 		break;
 	case RENAME_LOWER_CASE:
-		prc->nameLen = moveGName(prc->name, g_utf8_strdown(prc->name, (ssize_t)prc->nameLen));
+		prc->nameLen = moveGName(prc->name, g_utf8_strdown(prc->name, prc->nameLen));
 		break;
 	case RENAME_UPPER_CASE:
-		prc->nameLen = moveGName(prc->name, g_utf8_strup(prc->name, (ssize_t)prc->nameLen));
+		prc->nameLen = moveGName(prc->name, g_utf8_strup(prc->name, prc->nameLen));
 		break;
 	case RENAME_REVERSE:
-		prc->nameLen = moveGName(prc->name, g_utf8_strreverse(prc->name, (ssize_t)prc->nameLen));
+		prc->nameLen = moveGName(prc->name, g_utf8_strreverse(prc->name, prc->nameLen));
 	}
 
 	if (prc->nameLen >= FILENAME_MAX)
@@ -235,16 +247,16 @@ static ResponseType nameRename(Process* prc, Window* win) {
 static char* getUtf8Offset(char* str, size_t len, ssize_t id, size_t ulen) {
 	if (id >= 0)
 		return (size_t)id <= ulen ? g_utf8_offset_to_pointer(str, id) : str + len;
-	return (size_t)-id <= ulen ? g_utf8_offset_to_pointer(str, (ssize_t)ulen + id + 1) : str;
+	return (size_t)-id <= ulen ? g_utf8_offset_to_pointer(str, ulen + id + 1) : str;
 }
 
 static void nameRemove(Process* prc) {
-	size_t ulen = (size_t)g_utf8_strlen(prc->name, (ssize_t)prc->nameLen);
+	size_t ulen = g_utf8_strlen(prc->name, prc->nameLen);
 	if (prc->removeFrom != prc->removeTo) {
 		char* pfr = getUtf8Offset(prc->name, prc->nameLen, prc->removeFrom, ulen);
 		char* pto = getUtf8Offset(prc->name, prc->nameLen, prc->removeTo, ulen);
 		ssize_t diff = pto - pfr;
-		size_t dlen = (size_t)ABS(diff);
+		size_t dlen = ABS(diff);
 		if (dlen < ulen) {
 			if (diff < 0) {
 				char* tmp = pfr;
@@ -253,7 +265,7 @@ static void nameRemove(Process* prc) {
 			}
 			memmove(pfr, pto, (size_t)(prc->name + prc->nameLen - pto + 1) * sizeof(char));
 			prc->nameLen -= dlen;
-			ulen -= (size_t)g_utf8_strlen(pfr, (ssize_t)dlen);
+			ulen -= g_utf8_strlen(pfr, dlen);
 		} else {
 			prc->nameLen = ulen = 0;
 			prc->name[0] = '\0';
@@ -263,7 +275,7 @@ static void nameRemove(Process* prc) {
 	if (prc->removeFirst) {
 		if (prc->removeFirst < ulen) {
 			char* src = g_utf8_offset_to_pointer(prc->name, prc->removeFirst);
-			prc->nameLen = (size_t)(prc->name + prc->nameLen - src);
+			prc->nameLen = prc->name + prc->nameLen - src;
 			ulen -= prc->removeFirst;
 			memmove(prc->name, src, (prc->nameLen + 1) * sizeof(char));
 		} else {
@@ -274,8 +286,8 @@ static void nameRemove(Process* prc) {
 
 	if (prc->removeLast) {
 		if (prc->removeLast < ulen) {
-			char* src = g_utf8_offset_to_pointer(prc->name, (ssize_t)(ulen - prc->removeLast));
-			prc->nameLen = (size_t)(src - prc->name);
+			char* src = g_utf8_offset_to_pointer(prc->name, ulen - prc->removeLast);
+			prc->nameLen = src - prc->name;
 			*src = '\0';
 		} else {
 			prc->nameLen = 0;
@@ -289,7 +301,7 @@ static ResponseType nameAdd(Process* prc, Window* win) {
 		if (prc->nameLen + prc->addInsertLen >= FILENAME_MAX)
 			return continueError(prc, win, "Filename '%s' became too long during add.", prc->name);
 
-		char* pos = getUtf8Offset(prc->name, prc->nameLen, prc->addAt, (size_t)g_utf8_strlen(prc->name, (ssize_t)prc->nameLen));
+		char* pos = getUtf8Offset(prc->name, prc->nameLen, prc->addAt, g_utf8_strlen(prc->name, prc->nameLen));
 		memmove(pos + prc->addInsertLen, pos, (size_t)(prc->name + prc->nameLen - pos + 1) * sizeof(char));
 		memcpy(pos, prc->addInsert, prc->addInsertLen * sizeof(char));
 		prc->nameLen += prc->addInsertLen;
@@ -321,7 +333,7 @@ static ResponseType nameNumber(Process* prc, Window* win) {
 	char buf[MAX_DIGITS_I64B];
 	size_t blen = 0;
 	if (val) {
-		for (uint64 num = (uint64)(!negative ? val : -val); num; num /= prc->numberBase)
+		for (uint64 num = !negative ? val : -val; num; num /= prc->numberBase)
 			buf[blen++] = digits[num % prc->numberBase];
 	} else
 		buf[blen++] = '0';
@@ -331,7 +343,7 @@ static ResponseType nameNumber(Process* prc, Window* win) {
 	if (prc->nameLen + pbslen >= FILENAME_MAX)
 		return continueError(prc, win, "Filename '%s' became too long while adding number.", prc->name);
 
-	char* pos = getUtf8Offset(prc->name, prc->nameLen, prc->numberLocation, (size_t)g_utf8_strlen(prc->name, (ssize_t)prc->nameLen));
+	char* pos = getUtf8Offset(prc->name, prc->nameLen, prc->numberLocation, g_utf8_strlen(prc->name, prc->nameLen));
 	memmove(pos + pbslen, pos, (size_t)(prc->name + prc->nameLen - pos + 1) * sizeof(char));
 	pos = (char*)memcpy(pos, prc->numberPrefix, prc->numberPrefixLen * sizeof(char)) + prc->numberPrefixLen;
 	if (negative)
@@ -342,6 +354,59 @@ static ResponseType nameNumber(Process* prc, Window* win) {
 		*pos++ = buf[--blen];
 	memcpy(pos, prc->numberSuffix, prc->numberSuffixLen * sizeof(char));
 	prc->nameLen += pbslen;
+	return RESPONSE_NONE;
+}
+
+static ResponseType nameDate(Process* prc, Window* win) {
+	if (prc->dateMode == DATE_NONE)
+		return RESPONSE_NONE;
+
+	struct stat ps;
+#ifdef _WIN32
+	int rc = stat(prc->original, &ps);
+#else
+	int rc = prc->dateLinks ? stat(prc->original, &ps) : lstat(prc->original, &ps);
+#endif
+	if (rc)
+		return continueError(prc, win, "Failed to retrieve file info: %s", strerror(errno));
+
+	GDateTime* date;
+	switch (prc->dateMode) {
+#ifdef _WIN32
+	case DATE_MODIFY:
+		date = g_date_time_new_from_unix_local(ps.st_mtime);
+		break;
+	case DATE_ACCESS:
+		date = g_date_time_new_from_unix_local(ps.st_atime);
+		break;
+	case DATE_CHANGE:
+		date = g_date_time_new_from_unix_local(ps.st_ctime);
+#else
+	case DATE_MODIFY:
+		date = g_date_time_new_from_unix_local(ps.st_mtim.tv_sec);
+		break;
+	case DATE_ACCESS:
+		date = g_date_time_new_from_unix_local(ps.st_atim.tv_sec);
+		break;
+	case DATE_CHANGE:
+		date = g_date_time_new_from_unix_local(ps.st_ctim.tv_sec);
+#endif
+	}
+	char* dstr = g_date_time_format(date, prc->dateFormat);
+	g_date_time_unref(date);
+	if (!dstr)
+		return continueError(prc, win, "Failed to format date for file '%s'.", prc->name);
+	size_t dlen = strlen(dstr);
+	if (prc->nameLen + dlen >= FILENAME_MAX) {
+		g_free(dstr);
+		return continueError(prc, win, "Filename '%s' became too long while adding date.", prc->name);
+	}
+
+	char* pos = getUtf8Offset(prc->name, prc->nameLen, prc->dateLocation, g_utf8_strlen(prc->name, prc->nameLen));
+	memmove(pos + dlen, pos, (size_t)(prc->name + prc->nameLen - pos + 1) * sizeof(char));
+	memcpy(pos, dstr, dlen);
+	prc->nameLen += dlen;
+	g_free(dstr);
 	return RESPONSE_NONE;
 }
 
@@ -356,7 +421,7 @@ static size_t processExtension(Process* prc, const char* str, size_t slen) {
 			char* pos = memrchr(str, '.', prc->nameLen);
 			if (!pos)
 				break;
-			prc->nameLen = (size_t)(pos - str);
+			prc->nameLen = pos - str;
 		}
 	}
 	size_t elen = slen - prc->nameLen;
@@ -385,20 +450,18 @@ static size_t processExtension(Process* prc, const char* str, size_t slen) {
 		break;
 	case RENAME_LOWER_CASE:
 		prc->extension[0] = str[prc->nameLen];
-		return moveGName(prc->extension + 1, g_utf8_strdown(str + prc->nameLen + 1, (ssize_t)elen - 1));
+		return moveGName(prc->extension + 1, g_utf8_strdown(str + prc->nameLen + 1, elen - 1));
 	case RENAME_UPPER_CASE:
 		prc->extension[0] = str[prc->nameLen];
-		return moveGName(prc->extension + 1, g_utf8_strup(str + prc->nameLen + 1, (ssize_t)elen - 1));
+		return moveGName(prc->extension + 1, g_utf8_strup(str + prc->nameLen + 1, elen - 1));
 	case RENAME_REVERSE:
 		prc->extension[0] = str[prc->nameLen];
-		return moveGName(prc->extension + 1, g_utf8_strreverse(str + prc->nameLen + 1, (ssize_t)elen - 1));
+		return moveGName(prc->extension + 1, g_utf8_strreverse(str + prc->nameLen + 1, elen - 1));
 	}
 	return elen;
 }
 
 static ResponseType processName(Process* prc, const char* oldn, size_t olen, Window* win) {
-	if (olen >= FILENAME_MAX)
-		return continueError(prc, win, "Filename '%s' is too long.", oldn);
 	size_t elen = processExtension(prc, oldn, olen);
 	if (elen >= FILENAME_MAX)
 		return continueError(prc, win, "Extension became too long.");
@@ -415,6 +478,9 @@ static ResponseType processName(Process* prc, const char* oldn, size_t olen, Win
 		if (rc != RESPONSE_NONE)
 			return rc;
 	}
+	rc = nameDate(prc, win);
+	if (rc != RESPONSE_NONE)
+		return rc;
 
 	if (prc->nameLen + elen >= FILENAME_MAX)
 		return continueError(prc, win, "Filename '%s' became too long while reapplying extension.", prc->name);
@@ -489,6 +555,10 @@ static bool initRename(Process* prc, Arguments* arg, Window* win) {
 		showMessage(win, MESSAGE_ERROR, BUTTONS_OK, "Invalid UTF-8 number suffix");
 		return false;
 	}
+	if (!g_utf8_validate(prc->dateFormat, prc->dateFormatLen, NULL)) {
+		showMessage(win, MESSAGE_ERROR, BUTTONS_OK, "Invalid UTF-8 date format");
+		return false;
+		}
 	if (!g_utf8_validate(prc->destination, prc->destinationLen, NULL)) {
 		showMessage(win, MESSAGE_ERROR, BUTTONS_OK, "Invalid UTF-8 destination path");
 		return false;
@@ -508,48 +578,55 @@ static bool initWindowRename(Window* win) {
 	Process* prc = win->proc;
 	prc->model = gtk_tree_view_get_model(win->tblFiles);
 	prc->extensionName = gtk_entry_get_text(win->etExtension);
-	prc->extensionNameLen = (ushort)strlen(prc->extensionName);
+	prc->extensionNameLen = strlen(prc->extensionName);
 	prc->extensionReplace = gtk_entry_get_text(win->etExtensionReplace);
-	prc->extensionReplaceLen = (ushort)strlen(prc->extensionReplace);
+	prc->extensionReplaceLen = strlen(prc->extensionReplace);
 	prc->rename = gtk_entry_get_text(win->etRename);
-	prc->renameLen = (ushort)strlen(prc->rename);
+	prc->renameLen = strlen(prc->rename);
 	prc->replace = gtk_entry_get_text(win->etReplace);
-	prc->replaceLen = (ushort)strlen(prc->replace);
+	prc->replaceLen = strlen(prc->replace);
 	prc->addInsert = gtk_entry_get_text(win->etAddInsert);
-	prc->addInsertLen = (ushort)strlen(prc->addInsert);
+	prc->addInsertLen = strlen(prc->addInsert);
 	prc->addPrefix = gtk_entry_get_text(win->etAddPrefix);
-	prc->addPrefixLen = (ushort)strlen(prc->addPrefix);
+	prc->addPrefixLen = strlen(prc->addPrefix);
 	prc->addSuffix = gtk_entry_get_text(win->etAddSuffix);
-	prc->addSuffixLen = (ushort)strlen(prc->addSuffix);
+	prc->addSuffixLen = strlen(prc->addSuffix);
 	prc->numberPadStr = gtk_entry_get_text(win->etNumberPadding);
-	prc->numberPadStrLen = (ushort)strlen(prc->numberPadStr);
+	prc->numberPadStrLen = strlen(prc->numberPadStr);
 	prc->numberPrefix = gtk_entry_get_text(win->etNumberPrefix);
-	prc->numberPrefixLen = (ushort)strlen(prc->numberPrefix);
+	prc->numberPrefixLen = strlen(prc->numberPrefix);
 	prc->numberSuffix = gtk_entry_get_text(win->etNumberSuffix);
-	prc->numberSuffixLen = (ushort)strlen(prc->numberSuffix);
+	prc->numberSuffixLen = strlen(prc->numberSuffix);
+	prc->dateFormat = gtk_entry_get_text(win->etDateFormat);
+	prc->dateFormatLen = strlen(prc->dateFormat);
 	prc->destination = gtk_entry_get_text(win->etDestination);
-	prc->destinationLen = (ushort)strlen(prc->destination);
-	prc->extensionMode = (uint)gtk_combo_box_get_active(GTK_COMBO_BOX(win->cmbExtensionMode));
-	prc->renameMode = (uint)gtk_combo_box_get_active(GTK_COMBO_BOX(win->cmbRenameMode));
+	prc->destinationLen = strlen(prc->destination);
 	prc->numberStart = gtk_spin_button_get_value_as_int(win->sbNumberStart);
 	prc->numberStep = gtk_spin_button_get_value_as_int(win->sbNumberStep);
-	prc->destinationMode = (uint)gtk_combo_box_get_active(GTK_COMBO_BOX(win->cmbDestinationMode));
-	prc->extensionElements = (short)gtk_spin_button_get_value_as_int(win->sbExtensionElements);
-	prc->removeFrom = (short)gtk_spin_button_get_value_as_int(win->sbRemoveFrom);
-	prc->removeTo = (short)gtk_spin_button_get_value_as_int(win->sbRemoveTo);
-	prc->removeFirst = (ushort)gtk_spin_button_get_value_as_int(win->sbRemoveFirst);
-	prc->removeLast = (ushort)gtk_spin_button_get_value_as_int(win->sbRemoveLast);
-	prc->addAt = (short)gtk_spin_button_get_value_as_int(win->sbAddAt);
-	prc->numberLocation = (short)gtk_spin_button_get_value_as_int(win->sbNumberLocation);
-	prc->numberPadding = (ushort)gtk_spin_button_get_value_as_int(win->sbNumberPadding);
+	prc->extensionElements = gtk_spin_button_get_value_as_int(win->sbExtensionElements);
+	prc->extensionMode = gtk_combo_box_get_active(GTK_COMBO_BOX(win->cmbExtensionMode));
+	prc->renameMode = gtk_combo_box_get_active(GTK_COMBO_BOX(win->cmbRenameMode));
+	prc->dateMode = gtk_combo_box_get_active(GTK_COMBO_BOX(win->cmbDateMode));
+	prc->destinationMode = gtk_combo_box_get_active(GTK_COMBO_BOX(win->cmbDestinationMode));
+	prc->removeFrom = gtk_spin_button_get_value_as_int(win->sbRemoveFrom);
+	prc->removeTo = gtk_spin_button_get_value_as_int(win->sbRemoveTo);
+	prc->removeFirst = gtk_spin_button_get_value_as_int(win->sbRemoveFirst);
+	prc->removeLast = gtk_spin_button_get_value_as_int(win->sbRemoveLast);
+	prc->addAt = gtk_spin_button_get_value_as_int(win->sbAddAt);
+	prc->numberLocation = gtk_spin_button_get_value_as_int(win->sbNumberLocation);
+	prc->numberPadding = gtk_spin_button_get_value_as_int(win->sbNumberPadding);
+	prc->dateLocation = gtk_spin_button_get_value_as_int(win->sbDateLocation);
 	prc->extensionCi = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(win->cbExtensionCi));
 	prc->extensionRegex = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(win->cbExtensionRegex));
 	prc->replaceCi = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(win->cbReplaceCi));
 	prc->replaceRegex = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(win->cbReplaceRegex));
 	prc->number = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(win->cbNumber));
-	prc->numberBase = (uint8)gtk_spin_button_get_value_as_int(win->sbNumberBase);
+	prc->numberBase = gtk_spin_button_get_value_as_int(win->sbNumberBase);
+#ifndef _WIN32
+	prc->dateLinks = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(win->cbDateLinks));
+#endif
 	prc->forward = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(win->cbDestinationForward));
-	prc->total = (size_t)gtk_tree_model_iter_n_children(prc->model, NULL);
+	prc->total = gtk_tree_model_iter_n_children(prc->model, NULL);
 	prc->id = prc->forward ? 0 : prc->total - 1;
 	prc->step = prc->forward ? 1 : -1;
 	if (prc->forward) {
@@ -578,41 +655,48 @@ static bool initConsoleRename(Process* prc, Arguments* arg) {
 	prc->numberPadStr = arg->numberPadStr ? arg->numberPadStr : "";
 	prc->numberPrefix = arg->numberPrefix ? arg->numberPrefix : "";
 	prc->numberSuffix = arg->numberSuffix ? arg->numberSuffix : "";
+	prc->dateFormat = arg->dateFormat ? arg->dateFormat : DEFAULT_DATE_FORMAT;
 	prc->destination = arg->destination ? arg->destination : "";
 	prc->forward = !arg->backwards;
 	prc->total = arg->nFiles;
 	prc->id = prc->forward ? 0 : prc->total - 1;
 	prc->step = prc->forward ? 1 : -1;
+	prc->numberStart = arg->numberStart;
+	prc->numberStep = arg->numberStep;
 	prc->extensionMode = arg->extensionMode;
 	prc->renameMode = arg->renameMode;
-	prc->numberStart = (int)arg->numberStart;
-	prc->numberStep = (int)arg->numberStep;
+	prc->dateMode = arg->dateMode;
 	prc->destinationMode = arg->destinationMode;
-	prc->extensionNameLen = (ushort)strlen(prc->extensionName);
-	prc->extensionReplaceLen = (ushort)strlen(prc->extensionReplace);
-	prc->extensionElements = (short)arg->extensionElements;
-	prc->renameLen = (ushort)strlen(prc->rename);
-	prc->replaceLen = (ushort)strlen(prc->replace);
-	prc->removeFrom = (short)arg->removeFrom;
-	prc->removeTo = (short)arg->removeTo;
-	prc->removeFirst = (ushort)arg->removeFirst;
-	prc->removeLast = (ushort)arg->removeLast;
-	prc->addInsertLen = (ushort)strlen(prc->addInsert);
-	prc->addAt = (short)arg->addAt;
-	prc->addPrefixLen = (ushort)strlen(prc->addPrefix);
-	prc->addSuffixLen = (ushort)strlen(prc->addSuffix);
-	prc->numberLocation = (short)arg->numberLocation;
-	prc->numberPadding = (ushort)arg->numberPadding;
-	prc->numberPadStrLen = (ushort)strlen(prc->numberPadStr);
-	prc->numberPrefixLen = (ushort)strlen(prc->numberPrefix);
-	prc->numberSuffixLen = (ushort)strlen(prc->numberSuffix);
-	prc->destinationLen = (ushort)strlen(prc->destination);
+	prc->extensionNameLen = strlen(prc->extensionName);
+	prc->extensionReplaceLen = strlen(prc->extensionReplace);
+	prc->extensionElements = arg->extensionElements;
+	prc->renameLen = strlen(prc->rename);
+	prc->replaceLen = strlen(prc->replace);
+	prc->removeFrom = arg->removeFrom;
+	prc->removeTo = arg->removeTo;
+	prc->removeFirst = arg->removeFirst;
+	prc->removeLast = arg->removeLast;
+	prc->addInsertLen = strlen(prc->addInsert);
+	prc->addAt = arg->addAt;
+	prc->addPrefixLen = strlen(prc->addPrefix);
+	prc->addSuffixLen = strlen(prc->addSuffix);
+	prc->numberLocation = arg->numberLocation;
+	prc->numberPadding = arg->numberPadding;
+	prc->numberPadStrLen = strlen(prc->numberPadStr);
+	prc->numberPrefixLen = strlen(prc->numberPrefix);
+	prc->numberSuffixLen = strlen(prc->numberSuffix);
+	prc->dateFormatLen = strlen(prc->dateFormat);
+	prc->dateLocation = arg->dateLocation;
+	prc->destinationLen = strlen(prc->destination);
 	prc->extensionCi = arg->extensionCi;
 	prc->extensionRegex = arg->extensionRegex;
 	prc->replaceCi = arg->replaceCi;
 	prc->replaceRegex = arg->replaceRegex;
 	prc->number = arg->number;
-	prc->numberBase = (uint8)arg->numberBase;
+	prc->numberBase = arg->numberBase;
+#ifndef _WIN32
+	prc->dateLinks = arg->dateLinks;
+#endif
 	if (!arg->destination)
 		prc->destinationMode = DESTINATION_IN_PLACE;
 	return initRename(prc, arg, NULL);
@@ -662,6 +746,12 @@ static void setWidgetsSensitive(Window* win, bool sensitive) {
 	gtk_widget_set_sensitive(GTK_WIDGET(win->etNumberPadding), sensitive);
 	gtk_widget_set_sensitive(GTK_WIDGET(win->etNumberPrefix), sensitive);
 	gtk_widget_set_sensitive(GTK_WIDGET(win->etNumberSuffix), sensitive);
+	gtk_widget_set_sensitive(GTK_WIDGET(win->cmbDateMode), sensitive);
+	gtk_widget_set_sensitive(GTK_WIDGET(win->etDateFormat), sensitive);
+	gtk_widget_set_sensitive(GTK_WIDGET(win->sbDateLocation), sensitive);
+#ifndef _WIN32
+	gtk_widget_set_sensitive(GTK_WIDGET(win->cbDateLinks), sensitive);
+#endif
 	gtk_widget_set_sensitive(GTK_WIDGET(win->cmbDestinationMode), sensitive);
 	gtk_widget_set_sensitive(GTK_WIDGET(win->etDestination), sensitive);
 	gtk_widget_set_sensitive(GTK_WIDGET(win->btDestination), sensitive);
@@ -674,7 +764,24 @@ static void setWidgetsSensitive(Window* win, bool sensitive) {
 		setProgressBar(win->pbRename, 0, prc->total, true);
 	}
 }
+
+static void setOriginalNameWindow(Process* prc, char** name, size_t* nameLen, char** dirc, size_t* dircLen) {
+	gtk_tree_model_get(prc->model, &prc->it, FCOL_OLD_NAME, name, FCOL_DIRECTORY, dirc, FCOL_INVALID);
+	*nameLen = strlen(*name);
+	*dircLen = strlen(*dirc);
+	memcpy(prc->original, *dirc, *dircLen * sizeof(char));
+	memcpy(prc->original + *dircLen, *name, (*nameLen + 1) * sizeof(char));
+}
 #endif
+
+static void setOriginalNameConsole(Process* prc, Arguments* arg, size_t* plen) {
+	const char* path = g_file_peek_path(arg->files[prc->id]);
+	*plen = strlen(path);
+	memcpy(prc->original, path, (*plen + 1) * sizeof(char));
+#ifdef _WIN32
+	unbackslashify(prc->original);
+#endif
+}
 
 static bool initDestination(Process* prc, Window* win) {
 	if (prc->destinationMode == DESTINATION_IN_PLACE) {
@@ -705,19 +812,15 @@ static bool initDestination(Process* prc, Window* win) {
 
 static ResponseType processFile(Process* prc, const char* oldn, size_t olen, Window* win) {
 	if (prc->dstdirLen + prc->nameLen >= PATH_MAX)
-		return continueError(prc, win, "Directory '%s' and filename '%s' are too long.", prc->dstdir, prc->name);
-	if (prc->dstdirLen + olen >= PATH_MAX)
-		return continueError(prc, win, "Directory '%s' and filename '%s' are too long.", prc->dstdir, oldn);
+		return continueError(prc, win, "Path '%s%s' is too long.", prc->dstdir, prc->name);
 
-	memcpy(prc->dstdir + prc->dstdirLen, oldn, (olen + 1) * sizeof(char));
-	memmove(prc->name + prc->dstdirLen, prc->name, (prc->nameLen + 1) * sizeof(char));
-	memcpy(prc->name, prc->dstdir, prc->dstdirLen * sizeof(char));
+	memcpy(prc->dstdir + prc->dstdirLen, prc->name, (prc->nameLen + 1) * sizeof(char));
 #ifdef _WIN32
-	int rc = (int (*const[4])(const char*, const char*)){ rename, rename, copyFile, createSymlink }[prc->destinationMode](prc->dstdir, prc->name);
+	int rc = (int (*const[4])(const char*, const char*)){ rename, rename, copyFile, createSymlink }[prc->destinationMode](prc->original, prc->dstdir);
 #else
-	int rc = (int (*const[4])(const char*, const char*)){ rename, rename, copyFile, symlink }[prc->destinationMode](prc->dstdir, prc->name);
+	int rc = (int (*const[4])(const char*, const char*)){ rename, rename, copyFile, symlink }[prc->destinationMode](prc->original, prc->dstdir);
 #endif
-	return rc ? continueError(prc, win, "Failed to rename '%s' to '%s':\n%s", oldn, prc->name + prc->dstdirLen, strerror(errno)) : RESPONSE_NONE;
+	return rc ? continueError(prc, win, "Failed to rename '%s' to '%s':\n%s", prc->original, prc->dstdir, strerror(errno)) : RESPONSE_NONE;
 }
 
 #ifndef CONSOLE
@@ -738,7 +841,6 @@ void joinThread(Process* prc) {
 		g_thread_join(prc->thread);
 		prc->thread = NULL;
 	}
-	g_mutex_clear(&prc->mutex);
 	freeRegexes(prc);
 }
 
@@ -754,22 +856,20 @@ static void* windowRenameProc(void* userData) {
 	Process* prc = win->proc;
 	ResponseType rc;
 	ThreadCode tc;
-	bool inThread = g_thread_self()->func;
+	bool inThread = prc->threadCode & THREAD_SAME;
+	char* oldName;
+	char* oldDirc;
+	size_t oldNameLen, oldDircLen;
 	do {
-		char* oldn;
-		gtk_tree_model_get(prc->model, &prc->it, FCOL_OLD_NAME, &oldn, FCOL_INVALID);
-		size_t olen = strlen(oldn);
-		rc = processName(prc, oldn, olen, win);
+		setOriginalNameWindow(prc, &oldName, &oldNameLen, &oldDirc, &oldDircLen);
+		rc = processName(prc, oldName, oldNameLen, win);
 		if (rc == RESPONSE_NONE) {
 			if (prc->destinationMode == DESTINATION_IN_PLACE) {
-				char* tmp;
-				gtk_tree_model_get(prc->model, &prc->it, FCOL_DIRECTORY, &tmp, FCOL_INVALID);
-				prc->dstdirLen = strlen(tmp);
-				memcpy(prc->dstdir, tmp, (prc->dstdirLen + 1) * sizeof(char));
-				g_free(tmp);
+				prc->dstdirLen = oldDircLen;
+				memcpy(prc->dstdir, oldDirc, (oldDircLen + 1) * sizeof(char));
 			}
 
-			rc = processFile(prc, oldn, olen, win);
+			rc = processFile(prc, oldName, oldNameLen, win);
 			if (rc == RESPONSE_NONE) {
 				if (inThread) {
 					TableUpdate* tu = malloc(sizeof(TableUpdate));
@@ -781,16 +881,15 @@ static void* windowRenameProc(void* userData) {
 					gtk_list_store_set(win->lsFiles, &prc->it, FCOL_OLD_NAME, prc->name, FCOL_NEW_NAME, prc->name, FCOL_INVALID);
 			}
 		}
-		g_free(oldn);
-		prc->id += (size_t)prc->step;
+		g_free(oldName);
+		g_free(oldDirc);
+		prc->id += prc->step;
 		if (inThread)
 			g_idle_add(G_SOURCE_FUNC(updateProgressBar), win);
 		else
 			setProgressBar(win->pbRename, prc->id, prc->total, prc->forward);
 
-		g_mutex_lock(&prc->mutex);
-		tc = prc->threadCode;
-		g_mutex_unlock(&prc->mutex);
+		tc = prc->threadCode & ~THREAD_SAME;
 	} while (tc == THREAD_RUN && (rc == RESPONSE_NONE || rc == RESPONSE_YES) && (prc->forward ? gtk_tree_model_iter_next(prc->model, &prc->it) : gtk_tree_model_iter_previous(prc->model, &prc->it)));
 	if (tc != THREAD_DISCARD)
 		g_idle_add(G_SOURCE_FUNC(finishWindowRenameProc), win);
@@ -803,11 +902,11 @@ void windowRename(Window* win) {
 		return;
 	if (!initDestination(prc, win))
 		return;
-	prc->threadCode = THREAD_RUN;
-	g_mutex_init(&prc->mutex);
-	setWidgetsSensitive(win, false);
 
+	prc->threadCode = THREAD_RUN;
+	setWidgetsSensitive(win, false);
 	if (win->singleThread) {
+		prc->threadCode |= THREAD_SAME;
 		windowRenameProc(win);
 		return;
 	}
@@ -830,26 +929,19 @@ void windowPreview(Window* win) {
 		return;
 
 	ResponseType rc;
+	char* oldName;
+	char* oldDirc;
+	size_t oldNameLen, oldDircLen;
 	do {
-		char* oldn;
-		gtk_tree_model_get(prc->model, &prc->it, FCOL_OLD_NAME, &oldn, FCOL_INVALID);
-		rc = processName(prc, oldn, strlen(oldn), win);
+		setOriginalNameWindow(prc, &oldName, &oldNameLen, &oldDirc, &oldDircLen);
+		rc = processName(prc, oldName, oldNameLen, win);
 		if (rc == RESPONSE_NONE)
 			gtk_list_store_set(win->lsFiles, &prc->it, FCOL_NEW_NAME, prc->name, FCOL_INVALID);
-		g_free(oldn);
-		prc->id += (size_t)prc->step;
+		g_free(oldName);
+		g_free(oldDirc);
+		prc->id += prc->step;
 	} while ((rc == RESPONSE_NONE || rc == RESPONSE_YES) && (prc->forward ? gtk_tree_model_iter_next(prc->model, &prc->it) : gtk_tree_model_iter_previous(prc->model, &prc->it)));
 	freeRegexes(prc);
-}
-#endif
-
-#ifdef _WIN32
-static char* getWindowsFilepath(const char* path, size_t* plen) {
-	*plen = strlen(path);
-	char* str = malloc((*plen + 1) * sizeof(char));
-	memcpy(str, path, (*plen + 1) * sizeof(char));
-	unbackslashify(str);
-	return str;
 }
 #endif
 
@@ -862,20 +954,15 @@ void consoleRename(Window* win) {
 		return;
 
 	ResponseType rc;
+	size_t plen;
 	do {
-#ifdef _WIN32
-		size_t plen;
-		char* path = getWindowsFilepath(g_file_peek_path(arg->files[prc->id]), &plen);
-#else
-		const char* path = g_file_peek_path(arg->files[prc->id]);
-		size_t plen = strlen(path);
-#endif
-		const char* oldn = memrchr(path, '/', plen * sizeof(char));
+		setOriginalNameConsole(prc, arg, &plen);
+		const char* oldn = memrchr(prc->original, '/', plen * sizeof(char));
 		if (oldn) {
 			++oldn;
 			if (prc->destinationMode == DESTINATION_IN_PLACE) {
-				prc->dstdirLen = (size_t)(oldn - path);
-				memcpy(prc->dstdir, path, prc->dstdirLen * sizeof(char));
+				prc->dstdirLen = oldn - prc->original;
+				memcpy(prc->dstdir, prc->original, prc->dstdirLen * sizeof(char));
 				prc->dstdir[prc->dstdirLen] = '\0';
 			}
 		} else {
@@ -883,9 +970,9 @@ void consoleRename(Window* win) {
 				prc->dstdirLen = 0;
 				prc->dstdir[0] = '\0';
 			}
-			oldn = path;
+			oldn = prc->original;
 		}
-		size_t olen = (size_t)(path + plen - oldn);
+		size_t olen = prc->original + plen - oldn;
 
 		rc = processName(prc, oldn, olen, NULL);
 		if (rc == RESPONSE_NONE) {
@@ -894,13 +981,10 @@ void consoleRename(Window* win) {
 				if (prc->destinationMode == DESTINATION_IN_PLACE)
 					g_print("'%s' -> '%s'\n", oldn, prc->name);
 				else
-					g_print("'%s' -> '%s%s'\n", path, prc->dstdir, prc->name);
+					g_print("'%s' -> '%s%s'\n", prc->original, prc->dstdir, prc->name);
 			}
 		}
-		prc->id += (size_t)prc->step;
-#ifdef _WIN32
-		free(path);
-#endif
+		prc->id += prc->step;
 	} while ((rc == RESPONSE_NONE || rc == RESPONSE_YES) && prc->id < arg->nFiles);
 	freeRegexes(prc);
 }
@@ -912,27 +996,19 @@ void consolePreview(Window* win) {
 		return;
 
 	ResponseType rc;
+	size_t olen;
 	do {
-#ifdef _WIN32
-		size_t olen;
-		char* path = getWindowsFilepath(g_file_peek_path(arg->files[prc->id]), &olen);
-#else
-		const char* path = g_file_peek_path(arg->files[prc->id]);
-		size_t olen = strlen(path);
-#endif
-		const char* oldn = memrchr(path, '/', olen * sizeof(char));
+		setOriginalNameConsole(prc, arg, &olen);
+		const char* oldn = memrchr(prc->original, '/', olen * sizeof(char));
 		if (oldn)
-			olen = (size_t)(path + olen - ++oldn);
+			olen = prc->original + olen - ++oldn;
 		else
-			oldn = path;
+			oldn = prc->original;
 
 		rc = processName(prc, oldn, olen, NULL);
 		if (rc == RESPONSE_NONE)
 			g_print("'%s' -> '%s'\n", oldn, prc->name);
-		prc->id += (size_t)prc->step;
-#ifdef _WIN32
-		free(path);
-#endif
+		prc->id += prc->step;
 	} while ((rc == RESPONSE_NONE || rc == RESPONSE_YES) && prc->id < arg->nFiles);
 	freeRegexes(prc);
 }
