@@ -51,11 +51,18 @@ set(DIR_RSC "${CMAKE_SOURCE_DIR}/rsc")
 set(SRC_FILES
 	"src/arguments.c"
 	"src/arguments.h"
-	"src/common.h"
 	"src/main.c"
 	"src/main.h"
 	"src/rename.c"
-	"src/rename.h")
+	"src/rename.h"
+	"src/utils.c"
+	"src/utils.h")
+if(NOT CONSOLE)
+	list(APPEND SRC_FILES
+		"src/settings.c"
+		"src/settings.h")
+endif()
+
 add_executable(${PROJECT_NAME} WIN32 ${SRC_FILES})
 target_link_libraries(${PROJECT_NAME} ${PKGCONFS_LIBRARIES})
 if(MINGW)

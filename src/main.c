@@ -1,40 +1,54 @@
 #include "arguments.h"
 #include "main.h"
 #include "rename.h"
-#include <ctype.h>
 #include <sys/stat.h>
-#ifndef CONSOLE
-#include <zlib.h>
-#endif
 #ifdef _WIN32
 #include <windows.h>
+#else
+#include <grp.h>
+#include <pwd.h>
 #endif
 
-#define RSC_PATH "share/sfbrename/"
 #define MAIN_GLADE_NAME "main.glade.gz"
 #define WINDOW_ICON_NAME "sfbrename.png"
 #define LICENSE_NAME "LICENSE.gz"
-#define RSC_NAME_RESERVE 16
-#define INFLATED_SIZE 40000
-#define INFLATE_INCREMENT 10000
 #define FILE_URI_PREFIX "file://"
 #define LINE_BREAK_CHARS "\r\n"
-#define DEFAULT_PRINT_BUFFER_SIZE 1024
-#define COLOSSAL_FUCKUP_MESSAGE "Failed to build message"
-#ifdef _WIN32
-#define EXECUTABLE_NAME "sfbrename.exe"
-#endif
 
 #ifndef CONSOLE
-typedef struct AsyncMessage {
+typedef struct FileEntry {
+	GtkListStore* lsFiles;
+	FileInfo* info;
+	size_t dlen;
+	char file[];
+} FileEntry;
+
+typedef struct FileDetails {
+	GtkListStore* lsFiles;
+	GtkTreeIter it;
+	FileInfo* info;
+} FileDetails;
+
+typedef struct ClipboardFiles {
 	Window* win;
-	char* text;
-	GMutex mutex;
-	GCond cond;
-	ResponseType response;
-	MessageType message;
-	ButtonsType buttons;
-} AsyncMessage;
+	union {
+		char** uris;
+		char* text;
+	};
+	bool list;
+} ClipboardFiles;
+
+typedef struct DragFiles {
+	Window* win;
+	char** uris;
+	GdkDragContext* ctx;
+	uint time;
+} DragFiles;
+
+typedef struct DialogFiles {
+	Window* win;
+	GSList* files;
+} DialogFiles;
 
 typedef struct KeyPos {
 	char* key;
@@ -46,82 +60,36 @@ typedef struct KeyDirPos {
 	char* dir;
 	size_t pos;
 } KeyDirPos;
+
+static gboolean appendFile(FileEntry* entry) {
+	FileInfo* info = entry->info;
+	GtkTreeIter it;
+	gtk_list_store_append(entry->lsFiles, &it);
+	if (info) {
+		gtk_list_store_set(entry->lsFiles, &it,
+			FCOL_OLD_NAME, entry->file + entry->dlen,
+			FCOL_NEW_NAME, entry->file + entry->dlen,
+			FCOL_DIRECTORY, entry->file,
+			FCOL_SIZE, info->size,
+#ifndef _WIN32
+			FCOL_CREATE, info->create,
 #endif
-
-#ifdef _WIN32
-void* memrchr(const void* s, int c, size_t n) {
-	uint8* p = (uint8*)s;
-	if (n)
-		do {
-			if (p[--n] == c)
-				return p + n;
-		} while (n);
-	return NULL;
-}
-
-void unbackslashify(char* path) {
-	for (; *path; ++path)
-		if (*path == '\\')
-			*path = '/';
-}
+			FCOL_MODIFY, info->modify,
+			FCOL_ACCESS, info->access,
+			FCOL_CHANGE, info->change,
+			FCOL_PERMISSIONS, info->perms,
+#ifndef _WIN32
+			FCOL_USER, info->pwd ? info->pwd->pw_name : NULL,
+			FCOL_GROUP, info->grp ? info->grp->gr_name : NULL,
 #endif
-
-#ifndef CONSOLE
-static char* readGzip(const char* path, size_t* olen) {
-	gzFile file = gzopen(path, "rb");
-	if (!file)
-		return NULL;
-
-	size_t len = 0;
-	size_t siz = INFLATED_SIZE;
-	char* str = malloc(siz * sizeof(char));
-	for (;;) {
-		len += gzread(file, str + len, (uint)(siz - len) * sizeof(char));
-		if (len < siz)
-			break;
-		siz += INFLATE_INCREMENT;
-		str = realloc(str, siz);
-	}
-	gzclose(file);
-	if (olen)
-		*olen = len;
-	return str;
-}
-
-static char* readFile(const char* path, size_t* olen) {
-	FILE* file = fopen(path, "rb");
-	if (!file || fseek(file, 0, SEEK_END))
-		return NULL;
-	size_t len = ftell(file);
-	if (len == SIZE_MAX || fseek(file, 0, SEEK_SET))
-		return NULL;
-
-	char* str = malloc(len * sizeof(char));
-	size_t rlen = fread(str, sizeof(char), len, file);
-	if (!rlen) {
-		free(str);
-		return NULL;
-	}
-	if (rlen < len) {
-		len = rlen;
-		str = realloc(str, rlen * sizeof(char));
-	}
-	if (olen)
-		*olen = len;
-	return str;
-}
-
-static char* loadTextAsset(Window* win, const char* name, size_t* olen) {
-	size_t nlen = strlen(name);
-	memcpy(win->rscPath + win->rlen, name, (nlen + 1) * sizeof(char));
-	char* text = readGzip(win->rscPath, olen);
-	if (!text) {
-		win->rscPath[win->rlen + nlen - 3] = '\0';
-		text = readFile(win->rscPath, olen);
-		if (!text)
-			g_printerr("Failed to read %s\n", name);
-	}
-	return text;
+			FCOL_INVALID
+		);
+		g_free(info->size);
+		free(info);
+	} else
+		gtk_list_store_set(entry->lsFiles, &it, FCOL_OLD_NAME, entry->file + entry->dlen, FCOL_NEW_NAME, entry->file + entry->dlen, FCOL_DIRECTORY, entry->file, FCOL_INVALID);
+	free(entry);
+	return G_SOURCE_REMOVE;
 }
 
 static void addFile(Window* win, const char* file) {
@@ -132,8 +100,7 @@ static void addFile(Window* win, const char* file) {
 	size_t flen = strlen(file);
 	const char* sep = memrchr(file, '/', flen * sizeof(char));
 	sep = sep ? sep + 1 : file;
-	size_t dlen = sep - file;
-	size_t nlen = flen - dlen;
+	size_t dlen = sep - file, nlen = flen - dlen;
 	if (dlen >= PATH_MAX) {
 		showMessage(win, MESSAGE_ERROR, BUTTONS_OK, "Path '%s' is too long", file);
 		return;
@@ -142,166 +109,104 @@ static void addFile(Window* win, const char* file) {
 		showMessage(win, MESSAGE_ERROR, BUTTONS_OK, "Filename '%s' is too long", file + dlen);
 		return;
 	}
-	char path[PATH_MAX];
-	memcpy(path, file, dlen * sizeof(char));
-	path[dlen] = '\0';
 
-	GtkTreeIter it;
-	gtk_list_store_append(win->lsFiles, &it);
-	gtk_list_store_set(win->lsFiles, &it, FCOL_OLD_NAME, file + dlen, FCOL_NEW_NAME, file + dlen, FCOL_DIRECTORY, path, FCOL_INVALID);
-}
-
-static void processArgumentFiles(Window* win) {
-	size_t plen = 0;
-	char path[PATH_MAX];
-	if (getcwd(path, PATH_MAX)) {
-		plen = strlen(path);
-		if (path[plen - 1] != '/')
-			path[plen++] = '/';
-	} else
-		g_printerr("Current working directory path too long\n");
-
-	Arguments* arg = win->args;
-	if (!arg->noGui && arg->files) {
-#ifdef _WIN32
-		char buf[PATH_MAX];
-#endif
-		for (size_t i = 0; i < arg->nFiles; ++i) {
-			const char* file = g_file_peek_path(arg->files[i]);
-			if (file) {
-#ifdef _WIN32
-				size_t fsiz = strlen(file) + 1;
-				if (fsiz >= PATH_MAX) {
-					g_printerr("Filepath '%s' is too long\n", file);
-					continue;
-				}
-				memcpy(buf, file, fsiz * sizeof(char));
-				unbackslashify(buf);
-				addFile(win, buf);
-#else
-				addFile(win, file);
-#endif
-			}
-		}
+	FileEntry* entry = malloc(sizeof(FileEntry) + (flen + 2) * sizeof(char));
+	entry->lsFiles = win->lsFiles;
+	entry->info = NULL;
+	entry->dlen = dlen + 1;
+	memcpy(entry->file, file, dlen * sizeof(char));
+	entry->file[dlen] = '\0';
+	memcpy(entry->file + entry->dlen, file + dlen, (nlen + 1) * sizeof(char));
+	if (win->sets.showDetails) {
+		entry->info = malloc(sizeof(FileInfo));
+		setFileInfo(file, entry->info);
 	}
-}
-#endif
-
-static ResponseType consoleMessage(MessageType type, ButtonsType buttons, char* message) {
-	void (*printer)(const char*, ...) = type == MESSAGE_INFO || type == MESSAGE_QUESTION || type == MESSAGE_OTHER ? g_print : g_printerr;
-	if (buttons == BUTTONS_YES_NO || buttons == BUTTONS_OK_CANCEL)
-		printer("%s [Y/n]\n", message);
-	else {
-		printer("%s\n", message);
-		return RESPONSE_NONE;
-	}
-
-	char ch;
-	scanf("%c", &ch);
-	bool ok = toupper(ch) == 'Y' || ch == '\n';
-	if (buttons == BUTTONS_YES_NO)
-		return ok ? RESPONSE_YES : RESPONSE_NO;
-	return ok ? RESPONSE_OK : RESPONSE_CANCEL;
+	g_idle_add(G_SOURCE_FUNC(appendFile), entry);
 }
 
-#ifndef CONSOLE
-static ResponseType windowMessage(Window* win, MessageType type, ButtonsType buttons, char* message) {
-	ResponseType rc;
-	if (win) {
-		GtkMessageDialog* dialog = GTK_MESSAGE_DIALOG(gtk_message_dialog_new(GTK_WINDOW(win->window), GTK_DIALOG_DESTROY_WITH_PARENT, (GtkMessageType)type, (GtkButtonsType)buttons, "%s", message));
-		rc = gtk_dialog_run(GTK_DIALOG(dialog));
-		gtk_widget_destroy(GTK_WIDGET(dialog));
-	} else
-		rc = consoleMessage(type, buttons, message);
-	return rc;
-}
-
-static gboolean asyncMessage(AsyncMessage* am) {
-	g_mutex_lock(&am->mutex);
-	am->response = windowMessage(am->win, am->message, am->buttons, am->text);
-	g_cond_signal(&am->cond);
-	g_mutex_unlock(&am->mutex);
+static gboolean processArgumentFilesFinish(Window* win) {
+	setWidgetsSensitive(win, true);
 	return G_SOURCE_REMOVE;
 }
+
+static void* processArgumentFilesProc(Window* win) {
+	Arguments* arg = win->args;
+	Process* prc = win->proc;
+#ifdef _WIN32
+	char buf[PATH_MAX];
 #endif
-
-ResponseType showMessageV(Window* win, MessageType type, ButtonsType buttons, const char* format, va_list args) {
-	char* str = malloc(DEFAULT_PRINT_BUFFER_SIZE * sizeof(char));
-	int len = vsnprintf(str, DEFAULT_PRINT_BUFFER_SIZE, format, args);
-	if (len >= DEFAULT_PRINT_BUFFER_SIZE) {
-		str = realloc(str, (size_t)(len + 1) * sizeof(char));
-		len = vsnprintf(str, (size_t)len + 1, format, args);
-	}
-	if (len < 0) {
-		str = realloc(str, sizeof(COLOSSAL_FUCKUP_MESSAGE));
-		strcpy(str, COLOSSAL_FUCKUP_MESSAGE);
-		type = MESSAGE_ERROR;
-		buttons = BUTTONS_OK;
-	}
-
-	ResponseType rc;
-#ifdef CONSOLE
-	rc = consoleMessage(type, buttons, str);
+	for (prc->id = 0; prc->id < arg->nFiles && win->threadCode == THREAD_POPULATE;) {
+		const char* file = g_file_peek_path(arg->files[prc->id]);
+		if (file) {
+#ifdef _WIN32
+			size_t fsiz = strlen(file) + 1;
+			if (fsiz >= PATH_MAX) {
+				g_printerr("Filepath '%s' is too long\n", file);
+				continue;
+			}
+			memcpy(buf, file, fsiz * sizeof(char));
+			unbackslashify(buf);
+			addFile(win, buf);
 #else
-	if (g_thread_self()->func) {
-		AsyncMessage am = {
-			.win = win,
-			.text = str,
-			.response = RESPONSE_NONE,
-			.message = type,
-			.buttons = buttons
-		};
-		g_mutex_init(&am.mutex);
-		g_cond_init(&am.cond);
-		g_idle_add(G_SOURCE_FUNC(asyncMessage), &am);
-
-		g_mutex_lock(&am.mutex);
-		g_cond_wait(&am.cond, &am.mutex);
-		rc = am.response;
-		g_mutex_unlock(&am.mutex);
-		g_cond_clear(&am.cond);
-		g_mutex_clear(&am.mutex);
-	} else
-		rc = windowMessage(win, type, buttons, str);
+			addFile(win, file);
 #endif
-	free(str);
-	return rc;
+		}
+		++prc->id;
+		g_idle_add(G_SOURCE_FUNC(updateProgressBar), win);
+	}
+	g_idle_add(G_SOURCE_FUNC(processArgumentFilesFinish), win);
+	return NULL;
 }
 
-ResponseType showMessage(Window* win, MessageType type, ButtonsType buttons, const char* format, ...) {
-	va_list args;
-	va_start(args, format);
-	ResponseType rc = showMessageV(win, type, buttons, format, args);
-	va_end(args);
-	return rc;
+static gboolean runAddDialogFinish(DialogFiles* dgf) {
+	finishThread(dgf->win);
+	autoPreview(dgf->win);
+	setWidgetsSensitive(dgf->win, true);
+	g_slist_free(dgf->files);
+	return G_SOURCE_REMOVE;
 }
 
-#ifndef CONSOLE
+static void* runAddDialogProc(DialogFiles* dgf) {
+#ifdef _WIN32
+	char path[PATH_MAX];
+#endif
+	Window* win = dgf->win;
+	Process* prc = win->proc;
+	prc->id = 0;
+	for (GSList* it = dgf->files; it && win->threadCode == THREAD_POPULATE; it = it->next) {
+#ifdef _WIN32
+		size_t plen = strlen(it->data);
+		if (plen < PATH_MAX) {
+			memcpy(path, it->data, (plen + 1) * sizeof(char));
+			unbackslashify(path);
+			addFile(dgf->win, path);
+		} else
+			showMessage(dgf->win, MESSAGE_ERROR, BUTTONS_OK, "Path '%s' is too long", (char*)dgf->files->data);
+#else
+		addFile(dgf->win, it->data);
+#endif
+		++prc->id;
+		g_idle_add(G_SOURCE_FUNC(updateProgressBar), win);
+	}
+	g_idle_add(G_SOURCE_FUNC(runAddDialogFinish), dgf);
+	return NULL;
+}
+
 static void runAddDialog(Window* win, const char* title, GtkFileChooserAction action) {
 	GtkFileChooserDialog* dialog = GTK_FILE_CHOOSER_DIALOG(gtk_file_chooser_dialog_new(title, GTK_WINDOW(win->window), action, "Cancel", GTK_RESPONSE_CANCEL, "Add", GTK_RESPONSE_ACCEPT, NULL));
 	gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(dialog), g_get_home_dir());
 	gtk_file_chooser_set_select_multiple(GTK_FILE_CHOOSER(dialog), true);
-
-#ifdef _WIN32
-	char path[PATH_MAX];
-#endif
 	if (gtk_dialog_run(GTK_DIALOG(dialog)) == GTK_RESPONSE_ACCEPT) {
-		GSList* files = gtk_file_chooser_get_filenames(GTK_FILE_CHOOSER(dialog));
-		for (GSList* it = files; it; it = it->next) {
-#ifdef _WIN32
-			size_t plen = strlen(it->data);
-			if (plen < PATH_MAX) {
-				memcpy(path, it->data, (plen + 1) * sizeof(char));
-				unbackslashify(path);
-				addFile(win, path);
-			} else
-				showMessage(win, MESSAGE_ERROR, BUTTONS_OK, "Path '%s' is too long", (char*)files->data);
-#else
-			addFile(win, it->data);
-#endif
-		}
-		g_slist_free(files);
-		autoPreview(win);
+		DialogFiles* dgf = malloc(sizeof(DialogFiles));
+		dgf->win = win;
+		dgf->files = gtk_file_chooser_get_filenames(GTK_FILE_CHOOSER(dialog));
+
+		Process* prc = win->proc;
+		prc->forward = true;
+		prc->total = 0;
+		for (GSList* it = dgf->files; it; it = it->next, ++win->proc->total);
+		setWidgetsSensitive(win, false);
+		runThread(win, THREAD_POPULATE, (GThreadFunc)runAddDialogProc, G_SOURCE_FUNC(runAddDialogFinish), dgf);
 	}
 	gtk_widget_destroy(GTK_WIDGET(dialog));
 }
@@ -315,12 +220,109 @@ G_MODULE_EXPORT void clickAddFolders(GtkButton* button, Window* win) {
 }
 
 static void toggleAutoPreview(GtkCheckMenuItem* checkmenuitem, Window* win) {
-	win->autoPreview = gtk_check_menu_item_get_active(checkmenuitem);
+	win->sets.autoPreview = gtk_check_menu_item_get_active(checkmenuitem);
 	autoPreview(win);
 }
 
-static void toggleSingleThread(GtkCheckMenuItem* checkmenuitem, Window* win) {
-	win->singleThread = gtk_check_menu_item_get_active(checkmenuitem);
+static FileDetails* newFileDetails(Window* win, FileInfo* info) {
+	FileDetails* details = malloc(sizeof(FileDetails));
+	details->lsFiles = win->lsFiles;
+	details->it = win->proc->it;
+	details->info = info;
+	return details;
+}
+
+static gboolean setFileDetails(FileDetails* details) {
+	FileInfo* info = details->info;
+	if (info) {
+		gtk_list_store_set(details->lsFiles, &details->it,
+			FCOL_SIZE, info->size,
+#ifndef _WIN32
+			FCOL_CREATE, info->create,
+#endif
+			FCOL_MODIFY, info->modify,
+			FCOL_ACCESS, info->access,
+			FCOL_CHANGE, info->change,
+			FCOL_PERMISSIONS, info->perms,
+#ifndef _WIN32
+			FCOL_USER, info->pwd ? info->pwd->pw_name : NULL,
+			FCOL_GROUP, info->grp ? info->grp->gr_name : NULL,
+#endif
+			FCOL_INVALID
+		);
+		g_free(info->size);
+		free(info);
+	} else
+		gtk_list_store_set(details->lsFiles, &details->it, FCOL_SIZE, NULL, FCOL_CREATE, NULL, FCOL_MODIFY, NULL, FCOL_ACCESS, NULL, FCOL_CHANGE, NULL, FCOL_PERMISSIONS, NULL, FCOL_USER, NULL, FCOL_GROUP, NULL, FCOL_INVALID);
+	free(details);
+	return G_SOURCE_REMOVE;
+}
+
+static gboolean toggleShowDetailsFinish(Window* win) {
+	finishThread(win);
+	setWidgetsSensitive(win, true);
+	return G_SOURCE_REMOVE;
+}
+
+static void* toggleShowDetailsProc(Window* win) {
+	Process* prc = win->proc;
+	prc->id = 9;
+	if (win->sets.showDetails) {
+		char* name;
+		char* dirc;
+		char path[PATH_MAX];
+		do {
+			gtk_tree_model_get(prc->model, &prc->it, FCOL_OLD_NAME, &name, FCOL_DIRECTORY, &dirc, FCOL_INVALID);
+			size_t nlen = strlen(name), dlen = strlen(dirc);
+			if (nlen + dlen < PATH_MAX) {
+				memcpy(path, dirc, dlen * sizeof(char));
+				memcpy(path + dlen, name, (nlen + 1) * sizeof(char));
+
+				FileDetails* details = newFileDetails(win, malloc(sizeof(FileInfo)));
+				setFileInfo(path, details->info);
+				g_idle_add(G_SOURCE_FUNC(setFileDetails), details);
+			}
+			g_free(name);
+			g_free(dirc);
+			++prc->id;
+			g_idle_add(G_SOURCE_FUNC(updateProgressBar), win);
+		} while (win->threadCode == THREAD_POPULATE && gtk_tree_model_iter_next(prc->model, &prc->it));
+	} else {
+		do {
+			g_idle_add(G_SOURCE_FUNC(setFileDetails), newFileDetails(win, NULL));
+			++prc->id;
+			g_idle_add(G_SOURCE_FUNC(updateProgressBar), win);
+		} while (win->threadCode == THREAD_POPULATE && gtk_tree_model_iter_next(prc->model, &prc->it));
+	}
+	g_idle_add(G_SOURCE_FUNC(toggleShowDetailsFinish), win);
+	return NULL;
+}
+
+static void toggleShowDetails(GtkCheckMenuItem* checkmenuitem, Window* win) {
+	Settings* set = &win->sets;
+	set->showDetails = gtk_check_menu_item_get_active(checkmenuitem);
+
+	gtk_tree_view_column_set_visible(win->tblFilesSize, set->showDetails);
+#ifndef _WIN32
+	gtk_tree_view_column_set_visible(win->tblFilesCreate, set->showDetails);
+#endif
+	gtk_tree_view_column_set_visible(win->tblFilesModify, set->showDetails);
+	gtk_tree_view_column_set_visible(win->tblFilesAccess, set->showDetails);
+	gtk_tree_view_column_set_visible(win->tblFilesChange, set->showDetails);
+	gtk_tree_view_column_set_visible(win->tblFilesPermissions, set->showDetails);
+#ifndef _WIN32
+	gtk_tree_view_column_set_visible(win->tblFilesUser, set->showDetails);
+	gtk_tree_view_column_set_visible(win->tblFilesGroup, set->showDetails);
+#endif
+
+	Process* prc = win->proc;
+	prc->model = gtk_tree_view_get_model(win->tblFiles);
+	if (gtk_tree_model_get_iter_first(prc->model, &prc->it)) {
+		prc->forward = true;
+		prc->total = gtk_tree_model_iter_n_children(prc->model, NULL);
+		setWidgetsSensitive(win, false);
+		runThread(win, THREAD_POPULATE, (GThreadFunc)toggleShowDetailsProc, G_SOURCE_FUNC(toggleShowDetailsFinish), win);
+	}
 }
 
 static void activateClear(GtkMenuItem* item, Window* win) {
@@ -359,20 +361,19 @@ static void activateReset(GtkMenuItem* item, Window* win) {
 	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(win->cbNumber), arg->number);
 	gtk_entry_set_text(win->etDateFormat, arg->dateFormat ? arg->dateFormat : DEFAULT_DATE_FORMAT);
 	gtk_spin_button_set_value(win->sbDateLocation, (double)arg->dateLocation);
-#ifndef _WIN32
-	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(win->cbDateLinks), arg->dateLinks);
-#endif
 	gtk_combo_box_set_active(GTK_COMBO_BOX(win->cmbDateMode), arg->dateMode);
 	gtk_entry_set_text(win->etDestination, arg->destination ? arg->destination : "");
 	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(win->cbDestinationForward), !arg->backwards);
 	gtk_combo_box_set_active(GTK_COMBO_BOX(win->cmbDestinationMode), arg->destinationMode);
-	win->autoPreview = !arg->noAutoPreview;
+	win->sets.autoPreview = !arg->noAutoPreview;
+	win->sets.showDetails = !arg->noShowDetails;
 }
 
 static void activateAbout(GtkMenuItem* item, Window* win) {
-	strcpy(win->rscPath + win->rlen, WINDOW_ICON_NAME);
-	GdkPixbuf* icon = gdk_pixbuf_new_from_file(win->rscPath, NULL);
-	char* license = loadTextAsset(win, LICENSE_NAME, NULL);
+	Settings* set = &win->sets;
+	strcpy(set->rscPath + set->rlen, WINDOW_ICON_NAME);
+	GdkPixbuf* icon = gdk_pixbuf_new_from_file(set->rscPath, NULL);
+	char* license = loadTextAsset(set, LICENSE_NAME, NULL);
 	const char* authors[] = { "karwler", NULL };
 	gtk_show_about_dialog(GTK_WINDOW(win->window),
 		"authors", authors,
@@ -391,12 +392,12 @@ static void activateAbout(GtkMenuItem* item, Window* win) {
 
 G_MODULE_EXPORT void clickOptions(GtkButton* button, Window* win) {
 	GtkCheckMenuItem* miPreview = GTK_CHECK_MENU_ITEM(gtk_check_menu_item_new_with_label("Auto Preview"));
-	gtk_check_menu_item_set_active(miPreview, win->autoPreview);
+	gtk_check_menu_item_set_active(miPreview, win->sets.autoPreview);
 	g_signal_connect(miPreview, "toggled", G_CALLBACK(toggleAutoPreview), win);
 
-	GtkCheckMenuItem* miThread = GTK_CHECK_MENU_ITEM(gtk_check_menu_item_new_with_label("Single Thread"));
-	gtk_check_menu_item_set_active(miThread, win->singleThread);
-	g_signal_connect(miThread, "toggled", G_CALLBACK(toggleSingleThread), win);
+	GtkCheckMenuItem* miDetails = GTK_CHECK_MENU_ITEM(gtk_check_menu_item_new_with_label("Show Details"));
+	gtk_check_menu_item_set_active(miDetails, win->sets.showDetails);
+	g_signal_connect(miDetails, "toggled", G_CALLBACK(toggleShowDetails), win);
 
 	GtkMenuItem* miClear = GTK_MENU_ITEM(gtk_menu_item_new_with_label("Clear"));
 	g_signal_connect(miClear, "activate", G_CALLBACK(activateClear), win);
@@ -409,7 +410,7 @@ G_MODULE_EXPORT void clickOptions(GtkButton* button, Window* win) {
 
 	GtkMenu* menu = GTK_MENU(gtk_menu_new());
 	gtk_menu_shell_append(GTK_MENU_SHELL(menu), GTK_WIDGET(miPreview));
-	gtk_menu_shell_append(GTK_MENU_SHELL(menu), GTK_WIDGET(miThread));
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), GTK_WIDGET(miDetails));
 	gtk_menu_shell_append(GTK_MENU_SHELL(menu), gtk_separator_menu_item_new());
 	gtk_menu_shell_append(GTK_MENU_SHELL(menu), GTK_WIDGET(miClear));
 	gtk_menu_shell_append(GTK_MENU_SHELL(menu), GTK_WIDGET(miReset));
@@ -427,14 +428,12 @@ G_MODULE_EXPORT void dragEndTblFiles(GtkWidget* widget, GdkDragContext* context,
 		autoPreview(win);
 }
 
-static bool addFileUris(Window* win, char** uris) {
-	if (!uris)
-		return false;
-
+static void addFileUris(Window* win, char** uris) {
+	Process* prc = win->proc;
 	size_t flen = strlen(FILE_URI_PREFIX);
-	for (int i = 0; uris[i]; ++i)
-		if (!strncmp(uris[i], FILE_URI_PREFIX, flen)) {
-			char* fpath = g_uri_unescape_string(uris[i] + flen, "/");
+	for (prc->id = 0; uris[prc->id] && win->threadCode == THREAD_POPULATE;) {
+		if (!strncmp(uris[prc->id], FILE_URI_PREFIX, flen)) {
+			char* fpath = g_uri_unescape_string(uris[prc->id] + flen, "/");
 			if (fpath) {
 #ifdef _WIN32
 				addFile(win, fpath + (fpath[0] == '/' && isalnum(fpath[1]) && fpath[2] == ':' && fpath[3] == '/'));
@@ -443,17 +442,46 @@ static bool addFileUris(Window* win, char** uris) {
 #endif
 				g_free(fpath);
 			} else
-				g_printerr("Failed to unescape '%s'\n", uris[i]);
+				g_printerr("Failed to unescape '%s'\n", uris[prc->id]);
 		}
-	g_strfreev(uris);
-	return true;
+		++prc->id;
+		g_idle_add(G_SOURCE_FUNC(updateProgressBar), win);
+	}
+}
+
+static gboolean dropTblFilesFinish(DragFiles* dgf) {
+	finishThread(dgf->win);
+	gtk_drag_finish(dgf->ctx, true, false, dgf->time);
+	autoPreview(dgf->win);
+	setWidgetsSensitive(dgf->win, true);
+	g_strfreev(dgf->uris);
+	free(dgf);
+	return G_SOURCE_REMOVE;
+}
+
+static void* dropTblFilesProc(DragFiles* dgf) {
+	addFileUris(dgf->win, dgf->uris);
+	g_idle_add(G_SOURCE_FUNC(dropTblFilesFinish), dgf);
+	return NULL;
 }
 
 G_MODULE_EXPORT void dropTblFiles(GtkWidget* widget, GdkDragContext* context, int x, int y, GtkSelectionData* data, uint info, uint time, Window* win) {
-	if (addFileUris(win, gtk_selection_data_get_uris(data))) {
-		gtk_drag_finish(context, true, false, time);
-		autoPreview(win);
-	}
+	if (win->threadCode != THREAD_NONE)
+		return;
+
+	DragFiles* dgf = malloc(sizeof(DragFiles));
+	dgf->win = win;
+	dgf->uris = gtk_selection_data_get_uris(data);
+	dgf->ctx = context;
+	dgf->time = time;
+	if (dgf->uris) {
+		Process* prc = win->proc;
+		prc->forward = true;
+		for (prc->total = 0; dgf->uris[prc->total]; ++prc->total);
+		setWidgetsSensitive(win, false);
+		runThread(win, THREAD_POPULATE, (GThreadFunc)dropTblFilesProc, G_SOURCE_FUNC(dropTblFilesFinish), dgf);
+	} else
+		free(dgf);
 }
 
 static GtkTreeRowReference** getTreeViewSelectedRowRefs(GtkTreeView* view, GtkTreeModel** model, uint* cnt) {
@@ -588,6 +616,39 @@ static void setTblFilesClipboardText(GtkTreeModel* model, GtkTreeRowReference** 
 	free(text);
 }
 
+static gboolean addClipboardFilesFinish(ClipboardFiles* cbf) {
+	finishThread(cbf->win);
+	autoPreview(cbf->win);
+	setWidgetsSensitive(cbf->win, true);
+	if (cbf->list)
+		g_strfreev(cbf->uris);
+	else
+		g_free(cbf->text);
+	free(cbf);
+	return G_SOURCE_REMOVE;
+}
+
+static void* addClipboardFilesProc(ClipboardFiles* cbf) {
+	Window* win = cbf->win;
+	if (cbf->list)
+		addFileUris(win, cbf->uris);
+	else {
+		Process* prc = win->proc;
+		prc->id = 0;
+		for (char* pos = cbf->text + strspn(cbf->text, LINE_BREAK_CHARS); *pos && win->threadCode == THREAD_POPULATE; pos += strspn(pos, LINE_BREAK_CHARS)) {
+			size_t i = strcspn(pos, LINE_BREAK_CHARS);
+			bool more = pos[i] != '\0';
+			pos[i] = '\0';
+			addFile(cbf->win, pos);
+			pos += i + more;
+			++prc->id;
+			g_idle_add(G_SOURCE_FUNC(updateProgressBar), win);
+		}
+	}
+	g_idle_add(G_SOURCE_FUNC(addClipboardFilesFinish), cbf);
+	return NULL;
+}
+
 G_MODULE_EXPORT gboolean keyPressTblFiles(GtkWidget* widget, GdkEvent* event, Window* win) {
 	switch (event->key.keyval) {
 	case GDK_KEY_x:
@@ -616,26 +677,31 @@ G_MODULE_EXPORT gboolean keyPressTblFiles(GtkWidget* widget, GdkEvent* event, Wi
 		}
 		break;
 	case GDK_KEY_v:
-		if (event->key.state & GDK_CONTROL_MASK) {
+		if (event->key.state & GDK_CONTROL_MASK && win->threadCode == THREAD_NONE) {
 			GtkClipboard* clipboard = gtk_clipboard_get(GDK_SELECTION_CLIPBOARD);
-			char** uris = gtk_clipboard_wait_for_uris(clipboard);
-			if (uris) {
-				if (addFileUris(win, uris))
-					autoPreview(win);
-			} else {
-				char* text = gtk_clipboard_wait_for_text(clipboard);
-				if (text) {
-					for (char* pos = text + strspn(text, LINE_BREAK_CHARS); *pos; pos += strspn(pos, LINE_BREAK_CHARS)) {
-						size_t i = strcspn(pos, LINE_BREAK_CHARS);
-						bool more = pos[i] != '\0';
-						pos[i] = '\0';
-						addFile(win, pos);
-						pos += i + more;
-					}
-					g_free(text);
-					autoPreview(win);
+			ClipboardFiles* cbf = malloc(sizeof(ClipboardFiles));
+			cbf->win = win;
+			cbf->uris = gtk_clipboard_wait_for_uris(clipboard);
+			cbf->list = cbf->uris;
+
+			Process* prc = win->proc;
+			prc->forward = true;
+			prc->total = 0;
+			if (cbf->uris)
+				for (; cbf->uris[prc->total]; ++prc->total);
+			else {
+				cbf->text = gtk_clipboard_wait_for_text(clipboard);
+				if (!cbf->text) {
+					free(cbf);
+					return false;
+				}
+				for (char* pos = cbf->text + strspn(cbf->text, LINE_BREAK_CHARS); *pos; pos += strspn(pos, LINE_BREAK_CHARS), ++prc->total) {
+					size_t i = strcspn(pos, LINE_BREAK_CHARS);
+					pos += i + pos[i] != '\0';
 				}
 			}
+			setWidgetsSensitive(win, false);
+			runThread(win, THREAD_POPULATE, (GThreadFunc)addClipboardFilesProc, G_SOURCE_FUNC(addClipboardFilesFinish), cbf);
 		}
 		break;
 	case GDK_KEY_Delete:
@@ -743,6 +809,10 @@ G_MODULE_EXPORT void clickColumnTblFilesDirectory(GtkTreeViewColumn* treeviewcol
 	sortColumnFinish(win, order, keys);
 }
 
+G_MODULE_EXPORT void valueChangeGeneric(GtkWidget* widget, Window* win) {
+	autoPreview(win);
+}
+
 static void validateEtFilename(GtkEntry* entry) {
 	char* str = validateFilename(gtk_entry_get_text(entry));
 	if (str) {
@@ -751,34 +821,22 @@ static void validateEtFilename(GtkEntry* entry) {
 	}
 }
 
-G_MODULE_EXPORT void valueChangeEtGeneric(GtkEditable* editable, Window* win) {
-	validateEtFilename(GTK_ENTRY(editable));
+G_MODULE_EXPORT void valueChangeEtGeneric(GtkEntry* entry, Window* win) {
+	validateEtFilename(entry);
 	autoPreview(win);
 }
 
-G_MODULE_EXPORT void valueChangeCmbGeneric(GtkComboBox* comboBox, Window* win) {
-	autoPreview(win);
-}
-
-G_MODULE_EXPORT void valueChangeSbGeneric(GtkSpinButton* spinButton, Window* win) {
-	autoPreview(win);
-}
-
-G_MODULE_EXPORT void toggleCbGeneric(GtkToggleButton* toggleButton, Window* win) {
-	autoPreview(win);
-}
-
-G_MODULE_EXPORT void valueChangeEtExtension(GtkEditable* editable, Window* win) {
+G_MODULE_EXPORT void valueChangeEtExtension(GtkEntry* entry, Window* win) {
 	RenameMode mode = gtk_combo_box_get_active(GTK_COMBO_BOX(win->cmbExtensionMode));
 	if (mode != RENAME_RENAME && mode != RENAME_REPLACE)
 		gtk_combo_box_set_active(GTK_COMBO_BOX(win->cmbExtensionMode), RENAME_RENAME);
-	validateEtFilename(GTK_ENTRY(editable));
+	validateEtFilename(entry);
 	autoPreview(win);
 }
 
-G_MODULE_EXPORT void valueChangeEtExtensionReplace(GtkEditable* editable, Window* win) {
+G_MODULE_EXPORT void valueChangeEtExtensionReplace(GtkEntry* entry, Window* win) {
 	gtk_combo_box_set_active(GTK_COMBO_BOX(win->cmbExtensionMode), RENAME_REPLACE);
-	validateEtFilename(GTK_ENTRY(editable));
+	validateEtFilename(entry);
 	autoPreview(win);
 }
 
@@ -787,21 +845,21 @@ G_MODULE_EXPORT void toggleCbExtensionReplace(GtkToggleButton* toggleButton, Win
 	autoPreview(win);
 }
 
-G_MODULE_EXPORT void valueChangeEtRename(GtkEditable* editable, Window* win) {
+G_MODULE_EXPORT void valueChangeEtRename(GtkEntry* entry, Window* win) {
 	RenameMode mode = gtk_combo_box_get_active(GTK_COMBO_BOX(win->cmbRenameMode));
 	if (mode != RENAME_RENAME && mode != RENAME_REPLACE)
 		gtk_combo_box_set_active(GTK_COMBO_BOX(win->cmbRenameMode), RENAME_RENAME);
-	validateEtFilename(GTK_ENTRY(editable));
+	validateEtFilename(entry);
 	autoPreview(win);
 }
 
-G_MODULE_EXPORT void valueChangeEtReplace(GtkEditable* editable, Window* win) {
+G_MODULE_EXPORT void valueChangeEtReplace(GtkEntry* entry, Window* win) {
 	gtk_combo_box_set_active(GTK_COMBO_BOX(win->cmbRenameMode), RENAME_REPLACE);
-	validateEtFilename(GTK_ENTRY(editable));
+	validateEtFilename(entry);
 	autoPreview(win);
 }
 
-G_MODULE_EXPORT void toggleCbReplace(GtkToggleButton* editable, Window* win) {
+G_MODULE_EXPORT void toggleCbReplace(GtkToggleButton* toggleButton, Window* win) {
 	gtk_combo_box_set_active(GTK_COMBO_BOX(win->cmbRenameMode), RENAME_REPLACE);
 	autoPreview(win);
 }
@@ -811,13 +869,13 @@ G_MODULE_EXPORT void valueChangeSbNumber(GtkSpinButton* spinButton, Window* win)
 	autoPreview(win);
 }
 
-G_MODULE_EXPORT void valueChangeEtNumber(GtkEditable* editable, Window* win) {
+G_MODULE_EXPORT void valueChangeEtNumber(GtkEntry* entry, Window* win) {
 	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(win->cbNumber), true);
-	validateEtFilename(GTK_ENTRY(editable));
+	validateEtFilename(entry);
 	autoPreview(win);
 }
 
-G_MODULE_EXPORT void valueChangeEtDestination(GtkEditable* editable, Window* win) {
+G_MODULE_EXPORT void valueChangeEtDestination(GtkEntry* entry, Window* win) {
 	if (gtk_combo_box_get_active(GTK_COMBO_BOX(win->cmbDestinationMode)) == DESTINATION_IN_PLACE)
 		gtk_combo_box_set_active(GTK_COMBO_BOX(win->cmbDestinationMode), DESTINATION_MOVE);
 	autoPreview(win);
@@ -829,16 +887,12 @@ static void valueChangeDate(Window* win) {
 	autoPreview(win);
 }
 
-G_MODULE_EXPORT void valueChangeEtDate(GtkEditable* editable, Window* win) {
-	validateEtFilename(GTK_ENTRY(editable));
+G_MODULE_EXPORT void valueChangeEtDate(GtkEntry* entry, Window* win) {
+	validateEtFilename(entry);
 	valueChangeDate(win);
 }
 
 G_MODULE_EXPORT void valueChangeSbDate(GtkSpinButton* spinButton, Window* win) {
-	valueChangeDate(win);
-}
-
-G_MODULE_EXPORT void toggleCbDate(GtkToggleButton* editable, Window* win) {
 	valueChangeDate(win);
 }
 
@@ -865,30 +919,47 @@ G_MODULE_EXPORT void clickPreview(GtkButton* button, Window* win) {
 }
 
 G_MODULE_EXPORT void clickRename(GtkButton* button, Window* win) {
-	Process* prc = win->proc;
-	if (!prc->thread)
+	if (!win->thread)
 		windowRename(win);
 	else
-		prc->threadCode = THREAD_ABORT;
+		win->threadCode = THREAD_ABORT;
 }
 
 G_MODULE_EXPORT gboolean closeWindow(GtkApplicationWindow* window, GdkEvent* event, Window* win) {
-	Process* prc = win->proc;
-	if (prc->thread) {
+	if (win->thread) {
 		if (showMessage(win, MESSAGE_QUESTION, BUTTONS_YES_NO, "A process is still running.\nDo you want to abort it?") == RESPONSE_NO)
 			return true;
-		prc->threadCode = THREAD_DISCARD;
-		joinThread(prc);
+		win->threadCode = THREAD_ABORT;
+		g_thread_join(win->thread);
 	}
+
+	Settings* set = &win->sets;
+	gtk_window_get_size(GTK_WINDOW(window), &set->width, &set->height);
+	set->maximized = gtk_window_is_maximized(GTK_WINDOW(window));
 	return false;
 }
 
+G_MODULE_EXPORT void destroyWindow(GtkApplicationWindow* window, Window* win) {
+	if (win->threadCode != THREAD_NONE)
+		while (gtk_events_pending())
+			gtk_main_iteration_do(true);
+}
+
 void autoPreview(Window* win) {
-	if (win->autoPreview) {
+	if (win->sets.autoPreview) {
 		win->dryAuto = true;
 		clickPreview(NULL, win);
 		win->dryAuto = false;
 	}
+}
+
+static void setLabelWeight(GtkLabel* label, PangoWeight weight) {
+	PangoAttrList* attrs = gtk_label_get_attributes(label);
+	if (!attrs)
+		attrs = pango_attr_list_new();
+	pango_attr_list_change(attrs, pango_attr_weight_new(weight));
+	gtk_label_set_attributes(label, attrs);
+	pango_attr_list_unref(attrs);
 }
 #endif
 
@@ -928,36 +999,9 @@ static void initWindow(GtkApplication* app, Window* win) {
 		return;
 	}
 
-	win->rscPath = malloc(PATH_MAX * sizeof(char));
-#ifdef _WIN32
-	wchar* wpath = malloc(PATH_MAX * sizeof(wchar));
-	win->rlen = GetModuleFileNameW(NULL, wpath, PATH_MAX) + 1;
-	if (win->rlen > 1 && win->rlen <= PATH_MAX)
-		win->rlen = WideCharToMultiByte(CP_UTF8, 0, wpath, win->rlen, win->rscPath, PATH_MAX, NULL, NULL);
-	free(wpath);
-#else
-	win->rlen = readlink("/proc/self/exe", win->rscPath, PATH_MAX);
-#endif
-	if (win->rlen > 1 && win->rlen <= PATH_MAX) {
-#ifdef _WIN32
-		unbackslashify(path);
-#endif
-		char* pos = memrchr(win->rscPath, '/', --win->rlen);
-		if (pos)
-			pos = memrchr(win->rscPath, '/', pos - win->rscPath - (pos != win->rscPath));
-		win->rlen = pos - win->rscPath + 1;
-	} else {
-		strcpy(win->rscPath, "../");
-		win->rlen = strlen(win->rscPath);
-	}
-	size_t rslen = strlen(RSC_PATH);
-	win->rscPath = realloc(win->rscPath, win->rlen + rslen + RSC_NAME_RESERVE);
-	memcpy(win->rscPath + win->rlen, RSC_PATH, rslen);
-	win->rlen += rslen;
-	strcpy(win->rscPath + win->rlen, MAIN_GLADE_NAME);
-
+	Settings* set = &win->sets;
 	size_t glen;
-	char* glade = loadTextAsset(win, MAIN_GLADE_NAME, &glen);
+	char* glade = loadTextAsset(set, MAIN_GLADE_NAME, &glen);
 	if (!glade)
 		return;
 
@@ -978,6 +1022,14 @@ static void initWindow(GtkApplication* app, Window* win) {
 	win->lsFiles = GTK_LIST_STORE(gtk_builder_get_object(builder, "lsFiles"));
 	win->tblFilesName = GTK_TREE_VIEW_COLUMN(gtk_builder_get_object(builder, "tblFilesName"));
 	win->tblFilesDirectory = GTK_TREE_VIEW_COLUMN(gtk_builder_get_object(builder, "tblFilesDirectory"));
+	win->tblFilesSize = GTK_TREE_VIEW_COLUMN(gtk_builder_get_object(builder, "tblFilesSize"));
+	win->tblFilesCreate = GTK_TREE_VIEW_COLUMN(gtk_builder_get_object(builder, "tblFilesCreate"));
+	win->tblFilesModify = GTK_TREE_VIEW_COLUMN(gtk_builder_get_object(builder, "tblFilesModify"));
+	win->tblFilesAccess = GTK_TREE_VIEW_COLUMN(gtk_builder_get_object(builder, "tblFilesAccess"));
+	win->tblFilesChange = GTK_TREE_VIEW_COLUMN(gtk_builder_get_object(builder, "tblFilesChange"));
+	win->tblFilesPermissions = GTK_TREE_VIEW_COLUMN(gtk_builder_get_object(builder, "tblFilesPermissions"));
+	win->tblFilesUser = GTK_TREE_VIEW_COLUMN(gtk_builder_get_object(builder, "tblFilesUser"));
+	win->tblFilesGroup = GTK_TREE_VIEW_COLUMN(gtk_builder_get_object(builder, "tblFilesGroup"));
 	win->cmbExtensionMode = GTK_COMBO_BOX_TEXT(gtk_builder_get_object(builder, "cmbExtensionMode"));
 	win->etExtension = GTK_ENTRY(gtk_builder_get_object(builder, "etExtension"));
 	win->etExtensionReplace = GTK_ENTRY(gtk_builder_get_object(builder, "etExtensionReplace"));
@@ -1009,9 +1061,6 @@ static void initWindow(GtkApplication* app, Window* win) {
 	win->cmbDateMode = GTK_COMBO_BOX_TEXT(gtk_builder_get_object(builder, "cmbDateMode"));
 	win->etDateFormat = GTK_ENTRY(gtk_builder_get_object(builder, "etDateFormat"));
 	win->sbDateLocation = GTK_SPIN_BUTTON(gtk_builder_get_object(builder, "sbDateLocation"));
-#ifndef _WIN32
-	win->cbDateLinks = GTK_CHECK_BUTTON(gtk_builder_get_object(builder, "cbDateLinks"));
-#endif
 	win->cmbDestinationMode = GTK_COMBO_BOX_TEXT(gtk_builder_get_object(builder, "cmbDestinationMode"));
 	win->etDestination = GTK_ENTRY(gtk_builder_get_object(builder, "etDestination"));
 	win->btDestination = GTK_BUTTON(gtk_builder_get_object(builder, "btDestination"));
@@ -1021,28 +1070,32 @@ static void initWindow(GtkApplication* app, Window* win) {
 	win->pbRename = GTK_PROGRESS_BAR(gtk_builder_get_object(builder, "pbRename"));
 
 #ifdef _WIN32
-	gtk_widget_destroy(GTK_WIDGET(gtk_builder_get_object(builder, "cbDateLinks")));
+	gtk_combo_box_text_remove(win->cmbDateMode, 1);
+	gtk_tree_view_column_set_visible(win->tblFilesCreate, false);
+	gtk_tree_view_column_set_visible(win->tblFilesUser, false);
+	gtk_tree_view_column_set_visible(win->tblFilesGroup, false);
 #endif
+	setLabelWeight(GTK_LABEL(gtk_bin_get_child(GTK_BIN(win->cbNumber))), PANGO_WEIGHT_BOLD);
 	gtk_widget_set_sensitive(GTK_WIDGET(win->btRename), !arg->dry);
 	dragEndTblFiles(GTK_WIDGET(win->tblFiles), NULL, win);
 
-	GtkLabel* numberLabel = GTK_LABEL(gtk_bin_get_child(GTK_BIN(win->cbNumber)));
-	PangoAttrList* attrs = gtk_label_get_attributes(numberLabel);
-	if (!attrs)
-		attrs = pango_attr_list_new();
-	pango_attr_list_change(attrs, pango_attr_weight_new(PANGO_WEIGHT_BOLD));
-	gtk_label_set_attributes(numberLabel, attrs);
-	pango_attr_list_unref(attrs);
-
-	processArgumentFiles(win);
 	activateReset(NULL, win);
-	strcpy(win->rscPath + win->rlen, WINDOW_ICON_NAME);
-	gtk_window_set_icon_from_file(GTK_WINDOW(win->window), win->rscPath, NULL);
+	strcpy(set->rscPath + set->rlen, WINDOW_ICON_NAME);
+	gtk_window_set_icon_from_file(GTK_WINDOW(win->window), set->rscPath, NULL);
+	gtk_window_resize(GTK_WINDOW(win->window), set->width, set->height);
+	if (set->maximized)
+		gtk_window_maximize(GTK_WINDOW(win->window));
 
 	gtk_builder_connect_signals(builder, win);
 	g_object_unref(builder);
 	gtk_application_add_window(app, GTK_WINDOW(win->window));
 	gtk_widget_show_all(GTK_WIDGET(win->window));
+	if (!arg->noGui && arg->files) {
+		win->proc->forward = true;
+		win->proc->total = arg->nFiles;
+		setWidgetsSensitive(win, false);
+		runThread(win, THREAD_POPULATE, (GThreadFunc)processArgumentFilesProc, G_SOURCE_FUNC(processArgumentFilesFinish), win);
+	}
 }
 
 static void initWindowOpen(GtkApplication* app, GFile** files, int nFiles, const char* hint, Window* win) {
@@ -1063,12 +1116,14 @@ int main(int argc, char** argv) {
 		.app = g_application_new(NULL, G_APPLICATION_HANDLES_OPEN),
 #else
 		.app = gtk_application_new(NULL, G_APPLICATION_HANDLES_OPEN),
-		.singleThread = false,
 #endif
 		.args = malloc(sizeof(Arguments))
 	};
 	Process* prc = win.proc;
 	memset(prc, 0, sizeof(Process));
+#ifndef CONSOLE
+	loadSettings(&win.sets);
+#endif
 
 	Arguments* arg = win.args;
 	g_signal_connect(win.app, "activate", G_CALLBACK(initWindow), &win);
@@ -1076,6 +1131,9 @@ int main(int argc, char** argv) {
 	initCommandLineArguments(G_APPLICATION(win.app), arg, argc, argv);
 	int rc = g_application_run(G_APPLICATION(win.app), argc, argv);
 	g_object_unref(win.app);
+#ifndef CONSOLE
+	saveSettings(&win.sets);
+#endif
 
 	g_free(arg->extensionName);
 	g_free(arg->extensionReplace);
@@ -1090,7 +1148,7 @@ int main(int argc, char** argv) {
 	g_free(arg->dateFormat);
 	g_free(arg->destination);
 #ifndef CONSOLE
-	free(win.rscPath);
+	free(win.sets.rscPath);
 #endif
 	free(arg);
 	free(prc);

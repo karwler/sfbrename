@@ -22,6 +22,22 @@
       <column type="gchararray"/>
       <!-- column-name directory -->
       <column type="gchararray"/>
+      <!-- column-name size -->
+      <column type="gchararray"/>
+      <!-- column-name create -->
+      <column type="gchararray"/>
+      <!-- column-name modify -->
+      <column type="gchararray"/>
+      <!-- column-name access -->
+      <column type="gchararray"/>
+      <!-- column-name change -->
+      <column type="gchararray"/>
+      <!-- column-name permissions -->
+      <column type="gchararray"/>
+      <!-- column-name user -->
+      <column type="gchararray"/>
+      <!-- column-name group -->
+      <column type="gchararray"/>
     </columns>
   </object>
   <object class="GtkAdjustment" id="numberBaseAdj">
@@ -89,6 +105,7 @@
     <property name="default-width">1000</property>
     <property name="default-height">780</property>
     <signal name="delete-event" handler="closeWindow" swapped="no"/>
+    <signal name="destroy" handler="destroyWindow" swapped="no"/>
     <child>
       <object class="GtkBox">
         <property name="visible">True</property>
@@ -167,7 +184,7 @@
                               <item translatable="yes">Upper case</item>
                               <item translatable="yes">Reverse</item>
                             </items>
-                            <signal name="changed" handler="valueChangeCmbGeneric" swapped="no"/>
+                            <signal name="changed" handler="valueChangeGeneric" swapped="no"/>
                             <child internal-child="accessible">
                               <object class="AtkObject" id="cmbExtensionMode-atkobject">
                                 <property name="AtkObject::accessible-name" translatable="yes">extension mode</property>
@@ -263,7 +280,7 @@
 Set to -1 to use all periods, excluding an initial dot</property>
                             <property name="adjustment">sbExtensionElementsAdj</property>
                             <property name="numeric">True</property>
-                            <signal name="value-changed" handler="valueChangeSbGeneric" swapped="no"/>
+                            <signal name="value-changed" handler="valueChangeGeneric" swapped="no"/>
                             <child internal-child="accessible">
                               <object class="AtkObject" id="sbExtensionElements-atkobject">
                                 <property name="AtkObject::accessible-name" translatable="yes">extension elements</property>
@@ -342,7 +359,7 @@ Set to -1 to use all periods, excluding an initial dot</property>
                               <item translatable="yes">Upper case</item>
                               <item translatable="yes">Reverse</item>
                             </items>
-                            <signal name="changed" handler="valueChangeCmbGeneric" swapped="no"/>
+                            <signal name="changed" handler="valueChangeGeneric" swapped="no"/>
                             <child internal-child="accessible">
                               <object class="AtkObject" id="cmbRenameMode-atkobject">
                                 <property name="AtkObject::accessible-name" translatable="yes">rename mode</property>
@@ -479,7 +496,7 @@ Set to -1 to use all periods, excluding an initial dot</property>
                             <property name="tooltip-text" translatable="yes">Remove the last n characters</property>
                             <property name="adjustment">removeLastAdj</property>
                             <property name="numeric">True</property>
-                            <signal name="value-changed" handler="valueChangeSbGeneric" swapped="no"/>
+                            <signal name="value-changed" handler="valueChangeGeneric" swapped="no"/>
                             <child internal-child="accessible">
                               <object class="AtkObject" id="sbRemoveLast-atkobject">
                                 <property name="AtkObject::accessible-name" translatable="yes">remove last</property>
@@ -512,7 +529,7 @@ Set to -1 to use all periods, excluding an initial dot</property>
 Use a negative index to set one relative the the back</property>
                             <property name="adjustment">removeFromAdj</property>
                             <property name="numeric">True</property>
-                            <signal name="value-changed" handler="valueChangeSbGeneric" swapped="no"/>
+                            <signal name="value-changed" handler="valueChangeGeneric" swapped="no"/>
                             <child internal-child="accessible">
                               <object class="AtkObject" id="sbRemoveFrom-atkobject">
                                 <property name="AtkObject::accessible-name" translatable="yes">remove from</property>
@@ -544,7 +561,7 @@ Use a negative index to set one relative the the back</property>
 Use a negative index to set one relative the the back</property>
                             <property name="adjustment">removeToAdj</property>
                             <property name="numeric">True</property>
-                            <signal name="value-changed" handler="valueChangeSbGeneric" swapped="no"/>
+                            <signal name="value-changed" handler="valueChangeGeneric" swapped="no"/>
                             <child internal-child="accessible">
                               <object class="AtkObject" id="sbRemoveTo-atkobject">
                                 <property name="AtkObject::accessible-name" translatable="yes">remove to</property>
@@ -564,7 +581,7 @@ Use a negative index to set one relative the the back</property>
                             <property name="tooltip-text" translatable="yes">Remove the first n characters</property>
                             <property name="adjustment">removeFirstAdj</property>
                             <property name="numeric">True</property>
-                            <signal name="value-changed" handler="valueChangeSbGeneric" swapped="no"/>
+                            <signal name="value-changed" handler="valueChangeGeneric" swapped="no"/>
                             <child internal-child="accessible">
                               <object class="AtkObject" id="sbRemoveFirst-atkobject">
                                 <property name="AtkObject::accessible-name" translatable="yes">remove first</property>
@@ -719,7 +736,7 @@ Use a negative index to set one relative the the back</property>
 Use a negative index to set one relative the the back</property>
                             <property name="adjustment">addAtAdj</property>
                             <property name="numeric">True</property>
-                            <signal name="value-changed" handler="valueChangeSbGeneric" swapped="no"/>
+                            <signal name="value-changed" handler="valueChangeGeneric" swapped="no"/>
                             <child internal-child="accessible">
                               <object class="AtkObject" id="sbAddAt-atkobject">
                                 <property name="AtkObject::accessible-name" translatable="yes">insert at</property>
@@ -746,7 +763,7 @@ Use a negative index to set one relative the the back</property>
                         <property name="receives-default">False</property>
                         <property name="halign">start</property>
                         <property name="draw-indicator">True</property>
-                        <signal name="toggled" handler="toggleCbGeneric" swapped="no"/>
+                        <signal name="toggled" handler="valueChangeGeneric" swapped="no"/>
                       </object>
                       <packing>
                         <property name="expand">False</property>
@@ -1046,11 +1063,12 @@ Use a negative index to set one relative the the back</property>
                             <property name="active">0</property>
                             <items>
                               <item translatable="yes">None</item>
+                              <item translatable="yes">Create</item>
                               <item translatable="yes">Modify</item>
                               <item translatable="yes">Access</item>
                               <item translatable="yes">Change</item>
                             </items>
-                            <signal name="changed" handler="valueChangeCmbGeneric" swapped="no"/>
+                            <signal name="changed" handler="valueChangeGeneric" swapped="no"/>
                             <child internal-child="accessible">
                               <object class="AtkObject" id="cmbDateMode-atkobject">
                                 <property name="AtkObject::accessible-name" translatable="yes">date mode</property>
@@ -1060,26 +1078,6 @@ Use a negative index to set one relative the the back</property>
                           <packing>
                             <property name="left-attach">0</property>
                             <property name="top-attach">0</property>
-                          </packing>
-                        </child>
-                        <child>
-                          <object class="GtkCheckButton" id="cbDateLinks">
-                            <property name="label" translatable="yes">Follow Links</property>
-                            <property name="visible">True</property>
-                            <property name="can-focus">True</property>
-                            <property name="receives-default">False</property>
-                            <property name="tooltip-text" translatable="yes">Follow symlinks when checking the file's date</property>
-                            <property name="draw-indicator">True</property>
-                            <signal name="toggled" handler="toggleCbDate" swapped="no"/>
-                            <child internal-child="accessible">
-                              <object class="AtkObject" id="cbDateLinks-atkobject">
-                                <property name="AtkObject::accessible-name" translatable="yes">follow links</property>
-                              </object>
-                            </child>
-                          </object>
-                          <packing>
-                            <property name="left-attach">0</property>
-                            <property name="top-attach">1</property>
                           </packing>
                         </child>
                         <child>
@@ -1143,6 +1141,9 @@ Use a negative index to set one relative the the back</property>
                             <property name="left-attach">2</property>
                             <property name="top-attach">1</property>
                           </packing>
+                        </child>
+                        <child>
+                          <placeholder/>
                         </child>
                       </object>
                       <packing>
@@ -1348,10 +1349,9 @@ Use a negative index to set one relative the the back</property>
                   <object class="GtkTreeViewColumn" id="tblFilesName">
                     <property name="resizable">True</property>
                     <property name="sizing">fixed</property>
-                    <property name="fixed-width">100</property>
+                    <property name="fixed-width">150</property>
                     <property name="min-width">20</property>
                     <property name="title" translatable="yes">Name</property>
-                    <property name="expand">True</property>
                     <property name="clickable">True</property>
                     <signal name="clicked" handler="clickColumnTblFilesName" swapped="no"/>
                     <child>
@@ -1366,10 +1366,9 @@ Use a negative index to set one relative the the back</property>
                   <object class="GtkTreeViewColumn" id="tblFilesNewName">
                     <property name="resizable">True</property>
                     <property name="sizing">fixed</property>
-                    <property name="fixed-width">100</property>
+                    <property name="fixed-width">150</property>
                     <property name="min-width">20</property>
                     <property name="title" translatable="yes">New Name</property>
-                    <property name="expand">True</property>
                     <child>
                       <object class="GtkCellRendererText"/>
                       <attributes>
@@ -1382,7 +1381,7 @@ Use a negative index to set one relative the the back</property>
                   <object class="GtkTreeViewColumn" id="tblFilesDirectory">
                     <property name="resizable">True</property>
                     <property name="sizing">fixed</property>
-                    <property name="fixed-width">100</property>
+                    <property name="fixed-width">200</property>
                     <property name="min-width">20</property>
                     <property name="title" translatable="yes">Directory</property>
                     <property name="expand">True</property>
@@ -1396,9 +1395,129 @@ Use a negative index to set one relative the the back</property>
                     </child>
                   </object>
                 </child>
+                <child>
+                  <object class="GtkTreeViewColumn" id="tblFilesSize">
+                    <property name="resizable">True</property>
+                    <property name="sizing">fixed</property>
+                    <property name="fixed-width">80</property>
+                    <property name="min-width">20</property>
+                    <property name="title" translatable="yes">Size</property>
+                    <child>
+                      <object class="GtkCellRendererText"/>
+                      <attributes>
+                        <attribute name="text">3</attribute>
+                      </attributes>
+                    </child>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkTreeViewColumn" id="tblFilesCreate">
+                    <property name="resizable">True</property>
+                    <property name="sizing">fixed</property>
+                    <property name="fixed-width">150</property>
+                    <property name="min-width">20</property>
+                    <property name="title" translatable="yes">Create</property>
+                    <child>
+                      <object class="GtkCellRendererText"/>
+                      <attributes>
+                        <attribute name="text">4</attribute>
+                      </attributes>
+                    </child>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkTreeViewColumn" id="tblFilesModify">
+                    <property name="resizable">True</property>
+                    <property name="sizing">fixed</property>
+                    <property name="fixed-width">150</property>
+                    <property name="min-width">20</property>
+                    <property name="title" translatable="yes">Modify</property>
+                    <child>
+                      <object class="GtkCellRendererText"/>
+                      <attributes>
+                        <attribute name="text">5</attribute>
+                      </attributes>
+                    </child>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkTreeViewColumn" id="tblFilesAccess">
+                    <property name="resizable">True</property>
+                    <property name="sizing">fixed</property>
+                    <property name="fixed-width">150</property>
+                    <property name="min-width">20</property>
+                    <property name="title" translatable="yes">Access</property>
+                    <child>
+                      <object class="GtkCellRendererText"/>
+                      <attributes>
+                        <attribute name="text">6</attribute>
+                      </attributes>
+                    </child>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkTreeViewColumn" id="tblFilesChange">
+                    <property name="resizable">True</property>
+                    <property name="sizing">fixed</property>
+                    <property name="fixed-width">150</property>
+                    <property name="min-width">20</property>
+                    <property name="title" translatable="yes">Change</property>
+                    <child>
+                      <object class="GtkCellRendererText"/>
+                      <attributes>
+                        <attribute name="text">7</attribute>
+                      </attributes>
+                    </child>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkTreeViewColumn" id="tblFilesPermissions">
+                    <property name="resizable">True</property>
+                    <property name="sizing">fixed</property>
+                    <property name="fixed-width">100</property>
+                    <property name="min-width">20</property>
+                    <property name="title" translatable="yes">Permissions</property>
+                    <child>
+                      <object class="GtkCellRendererText"/>
+                      <attributes>
+                        <attribute name="text">8</attribute>
+                      </attributes>
+                    </child>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkTreeViewColumn" id="tblFilesUser">
+                    <property name="resizable">True</property>
+                    <property name="sizing">fixed</property>
+                    <property name="fixed-width">80</property>
+                    <property name="min-width">20</property>
+                    <property name="title" translatable="yes">User</property>
+                    <child>
+                      <object class="GtkCellRendererText"/>
+                      <attributes>
+                        <attribute name="text">9</attribute>
+                      </attributes>
+                    </child>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkTreeViewColumn" id="tblFilesGroup">
+                    <property name="resizable">True</property>
+                    <property name="sizing">fixed</property>
+                    <property name="fixed-width">80</property>
+                    <property name="min-width">20</property>
+                    <property name="title" translatable="yes">Group</property>
+                    <child>
+                      <object class="GtkCellRendererText"/>
+                      <attributes>
+                        <attribute name="text">10</attribute>
+                      </attributes>
+                    </child>
+                  </object>
+                </child>
                 <child internal-child="accessible">
                   <object class="AtkObject" id="tblFiles-atkobject">
-                    <property name="AtkObject::accessible-name" translatable="yes">filenames, columns: name, new name, directory</property>
+                    <property name="AtkObject::accessible-name" translatable="yes">files</property>
                   </object>
                 </child>
               </object>

@@ -1,9 +1,7 @@
 #ifndef ARGUMENTS_H
 #define ARGUMENTS_H
 
-#include "common.h"
-
-typedef struct Window Window;
+#include "utils.h"
 
 typedef struct Arguments {
 	GFile** files;
@@ -40,11 +38,9 @@ typedef struct Arguments {
 	gboolean extensionRegex;
 	gboolean replaceCi;
 	gboolean replaceRegex;
-#ifndef _WIN32
-	gboolean dateLinks;
-#endif
 	gboolean backwards;
 	gboolean noAutoPreview;
+	gboolean noShowDetails;
 	gboolean noGui;
 	gboolean dry;
 	gboolean msgAbort;

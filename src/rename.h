@@ -1,16 +1,7 @@
 #ifndef RENAME_H
 #define RENAME_H
 
-#include "common.h"
-
-#ifndef CONSOLE
-typedef enum ThreadCode {
-	THREAD_RUN,
-	THREAD_ABORT,
-	THREAD_DISCARD,
-	THREAD_SAME = 0x80
-} ThreadCode;
-#endif
+#include "utils.h"
 
 typedef enum MessageBehavior {
 	MSGBEHAVIOR_ASK,
@@ -18,11 +9,8 @@ typedef enum MessageBehavior {
 	MSGBEHAVIOR_CONTINUE
 } MessageBehavior;
 
-typedef struct Window Window;
-
 typedef struct Process {
 #ifndef CONSOLE
-	GThread* thread;
 	GtkTreeModel* model;
 	GtkTreeIter it;
 #endif
@@ -46,9 +34,6 @@ typedef struct Process {
 	size_t dstdirLen;
 	int64 numberStart;
 	int64 numberStep;
-#ifndef CONSOLE
-	_Atomic ThreadCode threadCode;
-#endif
 	MessageBehavior messageBehavior;
 	RenameMode extensionMode;
 	RenameMode renameMode;
@@ -81,9 +66,6 @@ typedef struct Process {
 	bool replaceRegex;
 	bool number;
 	uint8 numberBase;
-#ifndef _WIN32
-	bool dateLinks;
-#endif
 	bool forward;
 	int8 step;
 	char name[FILENAME_MAX];
@@ -93,7 +75,8 @@ typedef struct Process {
 } Process;
 
 #ifndef CONSOLE
-void joinThread(Process* prc);
+void setWidgetsSensitive(Window* win, bool sensitive);
+gboolean updateProgressBar(Window* win);
 void windowRename(Window* win);
 void windowPreview(Window* win);
 #endif

@@ -1,7 +1,7 @@
 #include "arguments.h"
 
 #ifdef _WIN32
-#define INVALID_FNCHARS "\"*/:<>?\\|\x01\x02\x03\x04\x05\x06\x07\x08\x09\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x20\x21\x22\x23\x24\x25\x26\x27\x28\x29\x30\x31"
+#define INVALID_FNCHARS "\"*/:<>?\\|\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0A\x0B\x0C\x0D\x0E\x0F\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1A\x1B\x1C\x1D\x1E\x1F"
 #else
 #define INVALID_FNCHARS "/"
 #endif
@@ -160,9 +160,11 @@ void initCommandLineArguments(GApplication* app, Arguments* arg, int argc, char*
 	GOptionEntry params[] = {
 #ifdef CONSOLE
 		{ "no-auto-preview", 'a', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE, &arg->noAutoPreview, "\n\tDisable verbose output.\n", NULL },
+		{ "no-details", 'q', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE, &arg->noShowDetails, "\n\tThis option is ignored. It exists for compatibility reasons.\n", NULL },
 		{ "no-gui", 'g', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE, &arg->noGui, "\n\tThis option is ignored. It exists for compatibility reasons.\n", NULL },
 #else
 		{ "no-auto-preview", 'a', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE, &arg->noAutoPreview, "\n\tDisable auto preview.\n\tWhen combined with --no-gui it will disable verbose output.\n", NULL },
+		{ "no-details", 'q', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE, &arg->noShowDetails, "\n\tDisable showing file details.\n", NULL },
 		{ "no-gui", 'g', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE, &arg->noGui, "\n\tDon't open a window and only process the files.\n", NULL },
 #endif
 		{ "dry", 'y', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE, &arg->dry, "\n\tWhen combined with --no-gui the new filenames will be shown without renaming any files.\n", NULL },
@@ -174,11 +176,8 @@ void initCommandLineArguments(GApplication* app, Arguments* arg, int argc, char*
 		{ "add-prefix", 'p', G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING, &arg->addPrefix, "\n\tPrefix filenames with this string.\n", "STRING" },
 		{ "add-suffix", 's', G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING, &arg->addSuffix, "\n\tSuffix filenames with this string.\n", "STRING" },
 		{ "date-mode", 'e', G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING, &arg->dateModeStr, "\n\tSet whether to insert the file's modification, access or status change date.\n\tThis option can be set with \"modify\", \"access\", \"change\", their first letters or indices 0 - 3.\n\tDefault value is 0.\n", "MODE" },
-		{ "date-format", 'q', G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING, &arg->dateFormat, "\n\tHow the date will be formatted.\n\tDefault value is " DEFAULT_DATE_FORMAT "\".\n", "STRING" },
+		{ "date-format", 'F', G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING, &arg->dateFormat, "\n\tHow the date will be formatted.\n\tDefault value is " DEFAULT_DATE_FORMAT "\".\n", "STRING" },
 		{ "date-location", 'O', G_OPTION_FLAG_NONE, G_OPTION_ARG_INT64, &arg->dateLocation, "\n\tAn index where to insert a date into a filename.\n\tA negative index can be used to set a location relative to a filename's length.\n\tDefault value is -1.\n", "INDEX" },
-#ifndef _WIN32
-		{ "date-follow-links", 'F', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE, &arg->dateLinks, "\n\tWhether to follow symlinks when checking the file's date.\n", NULL },
-#endif
 		{ "destination-mode", 'D', G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING, &arg->destinationModeStr, "\n\tSet whether to rename the files in place, move them, copy them or create symlinks to them.\n\tThis option can be set with \"in-place\", \"move\", \"copy\", \"link\", their first letters or indices 0 - 3.\n\tDefault value is 0.\n", "MODE" },
 		{ "destination", 'd', G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING, &arg->destination, "\n\tSet the destination directory when --destination-mode isn't set to \"in place\".\n", "DIRECTORY" },
 		{ "extension-mode", 'M', G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING, &arg->extensionModeStr, extMsg, "MODE" },

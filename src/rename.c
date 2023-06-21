@@ -13,9 +13,6 @@
 
 #define MAX_DIGITS_I32D 10
 #define CONTINUE_TEXT "\nContinue?"
-#ifndef _WIN32
-#define PERMISSION_MASK (S_ISUID | S_ISGID | S_ISVTX | S_IRWXU | S_IRWXO | S_IRWXO)
-#endif
 
 #ifndef CONSOLE
 typedef struct TableUpdate {
@@ -39,7 +36,7 @@ static wchar* stow(const char* src) {
 	return dst;
 }
 
-static int createSymlink(const char* path, const char* target) {
+static int createSymlink(const char* target, const char* path) {
 	wchar* wpath = stow(path);
 	wchar* wtarget = stow(target);
 	DWORD attr = GetFileAttributesW(wtarget);
@@ -74,7 +71,7 @@ static int copyFile(const char* src, const char* dst) {
 #ifdef _WIN32
 		mkdir(dst);
 #else
-		mkdir(dst, ps.st_mode & PERMISSION_MASK);
+		mkdir(dst, ps.st_mode & ~S_IFMT);
 #endif
 		DIR* dir = opendir(src);
 		if (!dir)
@@ -106,7 +103,7 @@ static int copyFile(const char* src, const char* dst) {
 		if (in == -1)
 			return -1;
 
-		int out = creat(dst, ps.st_mode & PERMISSION_MASK);
+		int out = creat(dst, ps.st_mode & ~S_IFMT);
 		if (out == -1) {
 			close(in);
 			return -1;
@@ -129,7 +126,11 @@ static int copyFile(const char* src, const char* dst) {
 		break; }
 #endif
 	default:
-		rc = -1;
+#ifdef _WIN32
+		rc = createSymlink(src, dst);
+#else
+		rc = symlink(src, dst);
+#endif
 	}
 	return rc;
 }
@@ -361,13 +362,13 @@ static ResponseType nameDate(Process* prc, Window* win) {
 	if (prc->dateMode == DATE_NONE)
 		return RESPONSE_NONE;
 
-	struct stat ps;
 #ifdef _WIN32
-	int rc = stat(prc->original, &ps);
+	struct stat ps;
+	if (stat(prc->original, &ps))
 #else
-	int rc = prc->dateLinks ? stat(prc->original, &ps) : lstat(prc->original, &ps);
+	struct statx ps;
+	if (statx(-1, prc->original, AT_SYMLINK_NOFOLLOW | AT_STATX_SYNC_AS_STAT, STATX_TYPE | STATX_MODE | STATX_UID | STATX_GID | STATX_ATIME | STATX_MTIME | STATX_CTIME | STATX_SIZE | STATX_BTIME, &ps))
 #endif
-	if (rc)
 		return continueError(prc, win, "Failed to retrieve file info: %s", strerror(errno));
 
 	GDateTime* date;
@@ -382,14 +383,17 @@ static ResponseType nameDate(Process* prc, Window* win) {
 	case DATE_CHANGE:
 		date = g_date_time_new_from_unix_local(ps.st_ctime);
 #else
+	case DATE_CREATE:
+		date = g_date_time_new_from_unix_local(ps.stx_btime.tv_sec);
+		break;
 	case DATE_MODIFY:
-		date = g_date_time_new_from_unix_local(ps.st_mtim.tv_sec);
+		date = g_date_time_new_from_unix_local(ps.stx_mtime.tv_sec);
 		break;
 	case DATE_ACCESS:
-		date = g_date_time_new_from_unix_local(ps.st_atim.tv_sec);
+		date = g_date_time_new_from_unix_local(ps.stx_atime.tv_sec);
 		break;
 	case DATE_CHANGE:
-		date = g_date_time_new_from_unix_local(ps.st_ctim.tv_sec);
+		date = g_date_time_new_from_unix_local(ps.stx_ctime.tv_sec);
 #endif
 	}
 	char* dstr = g_date_time_format(date, prc->dateFormat);
@@ -622,9 +626,6 @@ static bool initWindowRename(Window* win) {
 	prc->replaceRegex = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(win->cbReplaceRegex));
 	prc->number = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(win->cbNumber));
 	prc->numberBase = gtk_spin_button_get_value_as_int(win->sbNumberBase);
-#ifndef _WIN32
-	prc->dateLinks = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(win->cbDateLinks));
-#endif
 	prc->forward = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(win->cbDestinationForward));
 	prc->total = gtk_tree_model_iter_n_children(prc->model, NULL);
 	prc->id = prc->forward ? 0 : prc->total - 1;
@@ -694,9 +695,6 @@ static bool initConsoleRename(Process* prc, Arguments* arg) {
 	prc->replaceRegex = arg->replaceRegex;
 	prc->number = arg->number;
 	prc->numberBase = arg->numberBase;
-#ifndef _WIN32
-	prc->dateLinks = arg->dateLinks;
-#endif
 	if (!arg->destination)
 		prc->destinationMode = DESTINATION_IN_PLACE;
 	return initRename(prc, arg, NULL);
@@ -707,12 +705,12 @@ static void setProgressBar(GtkProgressBar* bar, size_t pos, size_t total, bool f
 	if (!fwd)
 		pos = total - pos - 1;
 	char text[MAX_DIGITS_I32D * 2 + 2];
-	sprintf(text, "%zu/%zu", pos, total);
+	snprintf(text, sizeof(text) / sizeof(*text), "%zu/%zu", pos, total);
 	gtk_progress_bar_set_fraction(bar, (double)pos / (double)total);
 	gtk_progress_bar_set_text(bar, text);
 }
 
-static void setWidgetsSensitive(Window* win, bool sensitive) {
+void setWidgetsSensitive(Window* win, bool sensitive) {
 	Process* prc = win->proc;
 	gtk_widget_set_sensitive(GTK_WIDGET(win->btAddFiles), sensitive);
 	gtk_widget_set_sensitive(GTK_WIDGET(win->btAddFolders), sensitive);
@@ -749,9 +747,6 @@ static void setWidgetsSensitive(Window* win, bool sensitive) {
 	gtk_widget_set_sensitive(GTK_WIDGET(win->cmbDateMode), sensitive);
 	gtk_widget_set_sensitive(GTK_WIDGET(win->etDateFormat), sensitive);
 	gtk_widget_set_sensitive(GTK_WIDGET(win->sbDateLocation), sensitive);
-#ifndef _WIN32
-	gtk_widget_set_sensitive(GTK_WIDGET(win->cbDateLinks), sensitive);
-#endif
 	gtk_widget_set_sensitive(GTK_WIDGET(win->cmbDestinationMode), sensitive);
 	gtk_widget_set_sensitive(GTK_WIDGET(win->etDestination), sensitive);
 	gtk_widget_set_sensitive(GTK_WIDGET(win->btDestination), sensitive);
@@ -824,7 +819,7 @@ static ResponseType processFile(Process* prc, const char* oldn, size_t olen, Win
 }
 
 #ifndef CONSOLE
-static gboolean updateProgressBar(Window* win) {
+gboolean updateProgressBar(Window* win) {
 	Process* prc = win->proc;
 	setProgressBar(win->pbRename, prc->id, prc->total, prc->forward);
 	return G_SOURCE_REMOVE;
@@ -836,27 +831,17 @@ static gboolean updateTableNames(TableUpdate* tu) {
 	return G_SOURCE_REMOVE;
 }
 
-void joinThread(Process* prc) {
-	if (prc->thread) {
-		g_thread_join(prc->thread);
-		prc->thread = NULL;
-	}
-	freeRegexes(prc);
-}
-
 static gboolean finishWindowRenameProc(Window* win) {
-	joinThread(win->proc);
+	finishThread(win);
+	freeRegexes(win->proc);
 	setWidgetsSensitive(win, true);
 	autoPreview(win);
 	return G_SOURCE_REMOVE;
 }
 
-static void* windowRenameProc(void* userData) {
-	Window* win = userData;
+static void* windowRenameProc(Window* win) {
 	Process* prc = win->proc;
 	ResponseType rc;
-	ThreadCode tc;
-	bool inThread = prc->threadCode & THREAD_SAME;
 	char* oldName;
 	char* oldDirc;
 	size_t oldNameLen, oldDircLen;
@@ -871,28 +856,19 @@ static void* windowRenameProc(void* userData) {
 
 			rc = processFile(prc, oldName, oldNameLen, win);
 			if (rc == RESPONSE_NONE) {
-				if (inThread) {
-					TableUpdate* tu = malloc(sizeof(TableUpdate));
-					tu->win = win;
-					tu->iter = prc->it;
-					memcpy(tu->name, prc->name + prc->dstdirLen, (prc->nameLen + 1) * sizeof(char));
-					g_idle_add(G_SOURCE_FUNC(updateTableNames), tu);
-				} else
-					gtk_list_store_set(win->lsFiles, &prc->it, FCOL_OLD_NAME, prc->name, FCOL_NEW_NAME, prc->name, FCOL_INVALID);
+				TableUpdate* tu = malloc(sizeof(TableUpdate));
+				tu->win = win;
+				tu->iter = prc->it;
+				memcpy(tu->name, prc->name + prc->dstdirLen, (prc->nameLen + 1) * sizeof(char));
+				g_idle_add(G_SOURCE_FUNC(updateTableNames), tu);
 			}
 		}
 		g_free(oldName);
 		g_free(oldDirc);
 		prc->id += prc->step;
-		if (inThread)
-			g_idle_add(G_SOURCE_FUNC(updateProgressBar), win);
-		else
-			setProgressBar(win->pbRename, prc->id, prc->total, prc->forward);
-
-		tc = prc->threadCode & ~THREAD_SAME;
-	} while (tc == THREAD_RUN && (rc == RESPONSE_NONE || rc == RESPONSE_YES) && (prc->forward ? gtk_tree_model_iter_next(prc->model, &prc->it) : gtk_tree_model_iter_previous(prc->model, &prc->it)));
-	if (tc != THREAD_DISCARD)
-		g_idle_add(G_SOURCE_FUNC(finishWindowRenameProc), win);
+		g_idle_add(G_SOURCE_FUNC(updateProgressBar), win);
+	} while (win->threadCode == THREAD_RENAME && (rc == RESPONSE_NONE || rc == RESPONSE_YES) && (prc->forward ? gtk_tree_model_iter_next(prc->model, &prc->it) : gtk_tree_model_iter_previous(prc->model, &prc->it)));
+	g_idle_add(G_SOURCE_FUNC(finishWindowRenameProc), win);
 	return NULL;
 }
 
@@ -902,25 +878,8 @@ void windowRename(Window* win) {
 		return;
 	if (!initDestination(prc, win))
 		return;
-
-	prc->threadCode = THREAD_RUN;
 	setWidgetsSensitive(win, false);
-	if (win->singleThread) {
-		prc->threadCode |= THREAD_SAME;
-		windowRenameProc(win);
-		return;
-	}
-
-	GError* err = NULL;
-	prc->thread = g_thread_try_new(NULL, windowRenameProc, win, &err);
-	if (!prc->thread) {
-		ResponseType rc = showMessage(win, MESSAGE_ERROR, BUTTONS_YES_NO, "Failed to create thread: %s\nRun on main thread?", err->message);
-		g_clear_error(&err);
-		if (rc == RESPONSE_YES)
-			windowRenameProc(win);
-		else
-			finishWindowRenameProc(win);
-	}
+	runThread(win, THREAD_RENAME, (GThreadFunc)windowRenameProc, (gboolean (*)(void*))finishWindowRenameProc, win);
 }
 
 void windowPreview(Window* win) {
