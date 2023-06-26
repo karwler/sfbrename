@@ -150,4 +150,5 @@ GitHub.sublime-settings
 .ionide
 
 # Specific
+.cache/
 build*/

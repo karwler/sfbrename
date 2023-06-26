@@ -3,6 +3,8 @@
 
 #include "utils.h"
 
+#define MAX_DIGITS_I32D 10
+
 typedef enum MessageBehavior {
 	MSGBEHAVIOR_ASK,
 	MSGBEHAVIOR_ABORT,
@@ -25,6 +27,7 @@ typedef struct Process {
 	const char* addInsert;
 	const char* addPrefix;
 	const char* addSuffix;
+	const char* numberDigits;
 	const char* numberPadStr;
 	const char* numberPrefix;
 	const char* numberSuffix;
@@ -32,8 +35,11 @@ typedef struct Process {
 	const char* destination;
 	size_t nameLen;
 	size_t dstdirLen;
-	int64 numberStart;
-	int64 numberStep;
+	int64_t numberStart;
+	int64_t numberStep;
+#ifndef _WIN32
+	uint statMask;
+#endif
 	MessageBehavior messageBehavior;
 	RenameMode extensionMode;
 	RenameMode renameMode;
@@ -65,9 +71,9 @@ typedef struct Process {
 	bool replaceCi;
 	bool replaceRegex;
 	bool number;
-	uint8 numberBase;
+	uint8_t numberBase;
 	bool forward;
-	int8 step;
+	int8_t step;
 	char name[FILENAME_MAX];
 	char extension[FILENAME_MAX];
 	char original[PATH_MAX];
@@ -75,11 +81,11 @@ typedef struct Process {
 } Process;
 
 #ifndef CONSOLE
-void setWidgetsSensitive(Window* win, bool sensitive);
+void setProgressBar(GtkProgressBar* bar, size_t pos, size_t total, bool fwd);
 gboolean updateProgressBar(Window* win);
 void windowRename(Window* win);
 void windowPreview(Window* win);
 #endif
-void consoleRename(Window* win);
-void consolePreview(Window* win);
+void consoleRename(Process* prc, const Arguments* arg, GFile** files, size_t nFiles);
+void consolePreview(Process* prc, const Arguments* arg, GFile** files, size_t nFiles);
 #endif

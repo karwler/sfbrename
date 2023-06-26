@@ -52,7 +52,6 @@ set(SRC_FILES
 	"src/arguments.c"
 	"src/arguments.h"
 	"src/main.c"
-	"src/main.h"
 	"src/rename.c"
 	"src/rename.h"
 	"src/utils.c"
@@ -60,7 +59,13 @@ set(SRC_FILES
 if(NOT CONSOLE)
 	list(APPEND SRC_FILES
 		"src/settings.c"
-		"src/settings.h")
+		"src/settings.h"
+		"src/table.c"
+		"src/table.h"
+		"src/templates.c"
+		"src/templates.h"
+		"src/window.c"
+		"src/window.h")
 endif()
 
 add_executable(${PROJECT_NAME} WIN32 ${SRC_FILES})
@@ -82,11 +87,11 @@ else()
 endif()
 
 set_target_properties(${PROJECT_NAME} PROPERTIES
-						RUNTIME_OUTPUT_DIRECTORY "${EXECUTABLE_OUTPUT_PATH}"
-						RUNTIME_OUTPUT_DIRECTORY_DEBUG "${EXECUTABLE_OUTPUT_PATH}"
-						RUNTIME_OUTPUT_DIRECTORY_RELEASE "${EXECUTABLE_OUTPUT_PATH}"
-						RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO "${EXECUTABLE_OUTPUT_PATH}"
-						RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL "${EXECUTABLE_OUTPUT_PATH}")
+	RUNTIME_OUTPUT_DIRECTORY "${EXECUTABLE_OUTPUT_PATH}"
+	RUNTIME_OUTPUT_DIRECTORY_DEBUG "${EXECUTABLE_OUTPUT_PATH}"
+	RUNTIME_OUTPUT_DIRECTORY_RELEASE "${EXECUTABLE_OUTPUT_PATH}"
+	RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO "${EXECUTABLE_OUTPUT_PATH}"
+	RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL "${EXECUTABLE_OUTPUT_PATH}")
 if(MINGW)
 	execute_process(COMMAND where gdbus OUTPUT_VARIABLE GDBUS_LOC)
 	string(REGEX REPLACE "\r?\n" ";" GDBUS_LOC "${GDBUS_LOC}")
@@ -104,8 +109,8 @@ if(MINGW)
 	string(REPLACE "\\" "/" GDBUS "${GDBUS}")
 
 	add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-						COMMAND bash -c "ldd '$<TARGET_FILE:${PROJECT_NAME}>' | grep '/mingw.*\\.dll' -o | xargs -I{} cp '{}' '$<TARGET_FILE_DIR:${PROJECT_NAME}>'"
-						COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${GDBUS}" "$<TARGET_FILE_DIR:${PROJECT_NAME}>")
+		COMMAND bash -c "ldd '$<TARGET_FILE:${PROJECT_NAME}>' | grep '/mingw.*\\.dll' -o | xargs -I{} cp '{}' '$<TARGET_FILE_DIR:${PROJECT_NAME}>'"
+		COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${GDBUS}" "$<TARGET_FILE_DIR:${PROJECT_NAME}>")
 	if(NOT CONSOLE)
 		string(REPLACE "/" ";" MINGW_LOC "${GDBUS}")
 		list(LENGTH MINGW_LOC MINGW_LEN)
@@ -125,52 +130,66 @@ if(MINGW)
 		set(PIXBUF_DIR "${PBOUT_DIR}/${PIXBUF_DIR}")
 
 		add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-						COMMAND "${CMAKE_COMMAND}" -E copy_directory "${THEME_LOC}/Adwaita/16x16" "${THEME_DIR}/Adwaita/16x16"
-						COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${THEME_LOC}/Adwaita/icon-theme.cache" "${THEME_LOC}/Adwaita/index.theme" "${THEME_DIR}/Adwaita"
-						COMMAND "${CMAKE_COMMAND}" -E copy_directory "${THEME_LOC}/hicolor/16x16" "${THEME_DIR}/hicolor/16x16"
-						COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${THEME_LOC}/hicolor/icon-theme.cache" "${THEME_LOC}/hicolor/index.theme" "${THEME_DIR}/hicolor"
-						COMMAND "${CMAKE_COMMAND}" -E copy_directory "${PIXBUF_LOC}" "${PIXBUF_DIR}")
+			COMMAND "${CMAKE_COMMAND}" -E copy_directory "${THEME_LOC}/Adwaita/16x16" "${THEME_DIR}/Adwaita/16x16"
+			COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${THEME_LOC}/Adwaita/icon-theme.cache" "${THEME_LOC}/Adwaita/index.theme" "${THEME_DIR}/Adwaita"
+			COMMAND "${CMAKE_COMMAND}" -E copy_directory "${THEME_LOC}/hicolor/16x16" "${THEME_DIR}/hicolor/16x16"
+			COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${THEME_LOC}/hicolor/icon-theme.cache" "${THEME_LOC}/hicolor/index.theme" "${THEME_DIR}/hicolor"
+			COMMAND "${CMAKE_COMMAND}" -E copy_directory "${PIXBUF_LOC}" "${PIXBUF_DIR}")
 	endif()
 endif()
+
+if(NOT CONSOLE)
+	find_program(GTK_TOOL "gtk-builder-tool")
+	find_program(SED "sed")
+	find_program(GZIP "gzip")
+	if(NOT GTK_TOOL)
+		message(WARNING "Can't simplify UI files: Failed to find gtk-builder-tool")
+	endif()
+	if(NOT SED)
+		message(WARNING "Can't reduce the size of UI files: Failed to find sed")
+	endif()
+	if(NOT GZIP)
+		message(WARNING "Can't compress UI files: Failed to find gzip")
+	endif()
+endif()
+
+function(copy_ui NAME)
+	add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+		COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${DIR_RSC}/${NAME}" "${DATA_DIR}")
+	if(GTK_TOOL)
+		add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+			COMMAND "${GTK_TOOL}" simplify --replace "${DATA_DIR}/${NAME}")
+	endif()
+	if(SED)
+		add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+			COMMAND "${SED}" -i "'s/^\\s*</</g;/<!--.*/d'" "${DATA_DIR}/${NAME}")
+	endif()
+	if(GZIP)
+		add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+			COMMAND "${GZIP}" -f "${DATA_DIR}/${NAME}")
+	endif()
+endfunction()
 
 if(APPIMAGE OR NOT CONSOLE)
 	add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-						COMMAND "${CMAKE_COMMAND}" -E make_directory "${DATA_DIR}"
-						COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${DIR_RSC}/${PROJECT_NAME}.png" "$<$<NOT:$<BOOL:${CONSOLE}>>:${DIR_RSC}/main.glade>" "${CMAKE_SOURCE_DIR}/LICENSE" "${DATA_DIR}")
+		COMMAND "${CMAKE_COMMAND}" -E make_directory "${DATA_DIR}"
+		COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${DIR_RSC}/${PROJECT_NAME}.png" "${DATA_DIR}")
 endif()
 if(NOT CONSOLE)
-	find_program(GTK_TOOL "gtk-builder-tool")
-	if(GTK_TOOL)
-		add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-							COMMAND "${GTK_TOOL}" simplify --replace "${DATA_DIR}/main.glade")
-	else()
-		message(WARNING "Can't simplify the glade file: Failed to find gtk-builder-tool")
-	endif()
-
-	find_program(SED "sed")
-	if(SED)
-		add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-							COMMAND "${SED}" -i "'s/^\\s*</</g;/<!--.*/d'" "${DATA_DIR}/main.glade")
-	else()
-		message(WARNING "Can't reduce the size of the glade file: Failed to find sed")
-	endif()
-
-	find_program(GZIP "gzip")
-	if(GZIP)
-		add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-							COMMAND "${GZIP}" -f "${DATA_DIR}/main.glade"
-							COMMAND "${GZIP}" -f "${DATA_DIR}/LICENSE")
-	else()
-		message(WARNING "Can't compress the glade file: Failed to find gzip")
-	endif()
+	add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+		COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${CMAKE_SOURCE_DIR}/LICENSE" "${DATA_DIR}"
+		COMMAND "$<$<BOOL:${GZIP}>:${GZIP};-f;${DATA_DIR}/LICENSE>"
+		COMMAND_EXPAND_LISTS)
+	copy_ui("main.ui")
+	copy_ui("templates.ui")
 endif()
 
 if(CMAKE_C_COMPILER_ID STREQUAL "Clang")
 	find_program(STRIPPER "strip")
 	if(STRIPPER)
 		add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-							COMMAND "$<$<OR:$<CONFIG:Release>,$<CONFIG:MinSizeRel>>:${STRIPPER};-s;$<TARGET_FILE:${PROJECT_NAME}>>"
-							COMMAND_EXPAND_LISTS)
+			COMMAND "$<$<OR:$<CONFIG:Release>,$<CONFIG:MinSizeRel>>:${STRIPPER};-s;$<TARGET_FILE:${PROJECT_NAME}>>"
+			COMMAND_EXPAND_LISTS)
 	else()
 		message(WARNING "Can't strip the executable: Failed to find strip")
 	endif()
@@ -182,11 +201,11 @@ if(APPIMAGE)
 		message(WARNING "Can't deploy the AppImage: Failed to find linuxdeploy")
 	endif()
 	add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-						COMMAND "${CMAKE_COMMAND}" -E create_symlink "usr/bin/${PROJECT_NAME}" "${PBOUT_DIR}/AppRun"
-						COMMAND "${CMAKE_COMMAND}" -E create_symlink "usr/share/${PROJECT_NAME}/${PROJECT_NAME}.png" "${PBOUT_DIR}/${PROJECT_NAME}.png"
-						COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${DIR_RSC}/${PROJECT_NAME}.desktop" "${PBOUT_DIR}"
-						COMMAND "$<$<BOOL:${LINUXDEPLOY}>:${LINUXDEPLOY};--appdir;${PBOUT_DIR};--output;appimage>"
-						COMMAND_EXPAND_LISTS)
+		COMMAND "${CMAKE_COMMAND}" -E create_symlink "usr/bin/${PROJECT_NAME}" "${PBOUT_DIR}/AppRun"
+		COMMAND "${CMAKE_COMMAND}" -E create_symlink "usr/share/${PROJECT_NAME}/${PROJECT_NAME}.png" "${PBOUT_DIR}/${PROJECT_NAME}.png"
+		COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${DIR_RSC}/${PROJECT_NAME}.desktop" "${PBOUT_DIR}"
+		COMMAND "$<$<BOOL:${LINUXDEPLOY}>:${LINUXDEPLOY};--appdir;${PBOUT_DIR};--output;appimage>"
+		COMMAND_EXPAND_LISTS)
 endif()
 
 if(APPIMAGE)
@@ -200,13 +219,13 @@ endif()
 
 if(APPIMAGE)
 	add_custom_target("uninstall"
-						COMMAND "${CMAKE_COMMAND}" -E remove -f "${CMAKE_INSTALL_PREFIX}/bin/${PROJECT_NAME}.AppImage"
-						WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+		COMMAND "${CMAKE_COMMAND}" -E remove -f "${CMAKE_INSTALL_PREFIX}/bin/${PROJECT_NAME}.AppImage"
+		WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 else()
 	add_custom_target("uninstall"
-						COMMAND "${CMAKE_COMMAND}" -E remove -f "${CMAKE_INSTALL_PREFIX}/bin/${PROJECT_NAME}"
-						COMMAND "${CMAKE_COMMAND}" -E remove_directory "${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME}"
-						WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+		COMMAND "${CMAKE_COMMAND}" -E remove -f "${CMAKE_INSTALL_PREFIX}/bin/${PROJECT_NAME}"
+		COMMAND "${CMAKE_COMMAND}" -E remove_directory "${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME}"
+		WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 endif()
 
 enable_testing()

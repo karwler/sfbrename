@@ -101,7 +101,7 @@
   <object class="GtkApplicationWindow" id="window">
     <property name="visible">True</property>
     <property name="can-focus">False</property>
-    <property name="border-width">10</property>
+    <property name="border-width">8</property>
     <property name="default-width">1000</property>
     <property name="default-height">780</property>
     <signal name="delete-event" handler="closeWindow" swapped="no"/>
@@ -110,6 +110,7 @@
       <object class="GtkBox">
         <property name="visible">True</property>
         <property name="can-focus">False</property>
+        <property name="spacing">4</property>
         <child>
           <object class="GtkScrolledWindow">
             <property name="visible">True</property>
@@ -125,6 +126,7 @@
                   <object class="GtkBox">
                     <property name="visible">True</property>
                     <property name="can-focus">False</property>
+                    <property name="margin-right">8</property>
                     <property name="orientation">vertical</property>
                     <property name="spacing">8</property>
                     <child>
@@ -237,6 +239,11 @@
                             <property name="halign">start</property>
                             <property name="draw-indicator">True</property>
                             <signal name="toggled" handler="toggleCbExtensionReplace" swapped="no"/>
+                            <child internal-child="accessible">
+                              <object class="AtkObject" id="cbExtensionCi-atkobject">
+                                <property name="AtkObject::accessible-name" translatable="yes">extension case insensitive</property>
+                              </object>
+                            </child>
                           </object>
                           <packing>
                             <property name="left-attach">2</property>
@@ -253,6 +260,11 @@
                             <property name="halign">start</property>
                             <property name="draw-indicator">True</property>
                             <signal name="toggled" handler="toggleCbExtensionReplace" swapped="no"/>
+                            <child internal-child="accessible">
+                              <object class="AtkObject" id="cbExtensionRegex-atkobject">
+                                <property name="AtkObject::accessible-name" translatable="yes">extension regular expression</property>
+                              </object>
+                            </child>
                           </object>
                           <packing>
                             <property name="left-attach">2</property>
@@ -412,6 +424,11 @@ Set to -1 to use all periods, excluding an initial dot</property>
                             <property name="halign">start</property>
                             <property name="draw-indicator">True</property>
                             <signal name="toggled" handler="toggleCbReplace" swapped="no"/>
+                            <child internal-child="accessible">
+                              <object class="AtkObject" id="cbReplaceCi-atkobject">
+                                <property name="AtkObject::accessible-name" translatable="yes">rename case insensitive</property>
+                              </object>
+                            </child>
                           </object>
                           <packing>
                             <property name="left-attach">2</property>
@@ -428,6 +445,11 @@ Set to -1 to use all periods, excluding an initial dot</property>
                             <property name="halign">start</property>
                             <property name="draw-indicator">True</property>
                             <signal name="toggled" handler="toggleCbReplace" swapped="no"/>
+                            <child internal-child="accessible">
+                              <object class="AtkObject" id="cbReplaceRegex-atkobject">
+                                <property name="AtkObject::accessible-name" translatable="yes">rename regular expression</property>
+                              </object>
+                            </child>
                           </object>
                           <packing>
                             <property name="left-attach">2</property>
@@ -772,7 +794,7 @@ Use a negative index to set one relative the the back</property>
                       </packing>
                     </child>
                     <child>
-                      <!-- n-columns=4 n-rows=4 -->
+                      <!-- n-columns=5 n-rows=4 -->
                       <object class="GtkGrid">
                         <property name="visible">True</property>
                         <property name="can-focus">False</property>
@@ -844,7 +866,7 @@ Use a negative index to set one relative the the back</property>
                             <property name="tooltip-text" translatable="yes">Fill n missing digits</property>
                             <property name="adjustment">numberPaddingAdj</property>
                             <property name="numeric">True</property>
-                            <signal name="value-changed" handler="valueChangeSbNumber" swapped="no"/>
+                            <signal name="value-changed" handler="valueChangeNumberGeneric" swapped="no"/>
                             <child internal-child="accessible">
                               <object class="AtkObject" id="sbNumberPadding-atkobject">
                                 <property name="AtkObject::accessible-name" translatable="yes">number padding digits</property>
@@ -862,8 +884,10 @@ Use a negative index to set one relative the the back</property>
                             <property name="can-focus">True</property>
                             <property name="tooltip-text" translatable="yes">First number in the sequence</property>
                             <property name="adjustment">numberStartAdj</property>
-                            <property name="numeric">True</property>
-                            <signal name="value-changed" handler="valueChangeSbNumber" swapped="no"/>
+                            <signal name="changed" handler="textChangeSbNumber" swapped="no"/>
+                            <signal name="input" handler="inputSbNumber" swapped="no"/>
+                            <signal name="output" handler="outputSbNumber" swapped="no"/>
+                            <signal name="value-changed" handler="valueChangeNumberGeneric" swapped="no"/>
                             <child internal-child="accessible">
                               <object class="AtkObject" id="sbNumberStart-atkobject">
                                 <property name="AtkObject::accessible-name" translatable="yes">number start</property>
@@ -881,8 +905,10 @@ Use a negative index to set one relative the the back</property>
                             <property name="can-focus">True</property>
                             <property name="tooltip-text" translatable="yes">Increment of the number sequence</property>
                             <property name="adjustment">numberStepAdj</property>
-                            <property name="numeric">True</property>
-                            <signal name="value-changed" handler="valueChangeSbNumber" swapped="no"/>
+                            <signal name="changed" handler="textChangeSbNumber" swapped="no"/>
+                            <signal name="input" handler="inputSbNumber" swapped="no"/>
+                            <signal name="output" handler="outputSbNumber" swapped="no"/>
+                            <signal name="value-changed" handler="valueChangeNumberGeneric" swapped="no"/>
                             <child internal-child="accessible">
                               <object class="AtkObject" id="sbNumberStep-atkobject">
                                 <property name="AtkObject::accessible-name" translatable="yes">number step</property>
@@ -892,6 +918,7 @@ Use a negative index to set one relative the the back</property>
                           <packing>
                             <property name="left-attach">3</property>
                             <property name="top-attach">1</property>
+                            <property name="width">2</property>
                           </packing>
                         </child>
                         <child>
@@ -911,6 +938,7 @@ Use a negative index to set one relative the the back</property>
                           <packing>
                             <property name="left-attach">3</property>
                             <property name="top-attach">2</property>
+                            <property name="width">2</property>
                           </packing>
                         </child>
                         <child>
@@ -921,7 +949,7 @@ Use a negative index to set one relative the the back</property>
 Use a negative index to set one relative the the back</property>
                             <property name="adjustment">numberLocationAdj</property>
                             <property name="numeric">True</property>
-                            <signal name="value-changed" handler="valueChangeSbNumber" swapped="no"/>
+                            <signal name="value-changed" handler="valueChangeNumberGeneric" swapped="no"/>
                             <child internal-child="accessible">
                               <object class="AtkObject" id="sbNumberLocation-atkobject">
                                 <property name="AtkObject::accessible-name" translatable="yes">number location</property>
@@ -942,25 +970,6 @@ Use a negative index to set one relative the the back</property>
                           </object>
                           <packing>
                             <property name="left-attach">2</property>
-                            <property name="top-attach">0</property>
-                          </packing>
-                        </child>
-                        <child>
-                          <object class="GtkSpinButton" id="sbNumberBase">
-                            <property name="visible">True</property>
-                            <property name="can-focus">True</property>
-                            <property name="tooltip-text" translatable="yes">Base of the numerical system</property>
-                            <property name="adjustment">numberBaseAdj</property>
-                            <property name="numeric">True</property>
-                            <signal name="value-changed" handler="valueChangeSbNumber" swapped="no"/>
-                            <child internal-child="accessible">
-                              <object class="AtkObject" id="sbNumberBase-atkobject">
-                                <property name="AtkObject::accessible-name" translatable="yes">number base</property>
-                              </object>
-                            </child>
-                          </object>
-                          <packing>
-                            <property name="left-attach">3</property>
                             <property name="top-attach">0</property>
                           </packing>
                         </child>
@@ -1022,6 +1031,46 @@ Use a negative index to set one relative the the back</property>
                           <packing>
                             <property name="left-attach">3</property>
                             <property name="top-attach">3</property>
+                            <property name="width">2</property>
+                          </packing>
+                        </child>
+                        <child>
+                          <object class="GtkCheckButton" id="cbNumberUpper">
+                            <property name="label" translatable="yes">Upper</property>
+                            <property name="visible">True</property>
+                            <property name="can-focus">True</property>
+                            <property name="receives-default">False</property>
+                            <property name="tooltip-text" translatable="yes">Use capital letters for a radix above 10 and below 37</property>
+                            <property name="draw-indicator">True</property>
+                            <signal name="toggled" handler="valueChangeNumberBase" swapped="no"/>
+                            <child internal-child="accessible">
+                              <object class="AtkObject" id="cbNumberUpper-atkobject">
+                                <property name="AtkObject::accessible-name" translatable="yes">number uppercase</property>
+                              </object>
+                            </child>
+                          </object>
+                          <packing>
+                            <property name="left-attach">4</property>
+                            <property name="top-attach">0</property>
+                          </packing>
+                        </child>
+                        <child>
+                          <object class="GtkSpinButton" id="sbNumberBase">
+                            <property name="visible">True</property>
+                            <property name="can-focus">True</property>
+                            <property name="tooltip-text" translatable="yes">Base of the numerical system</property>
+                            <property name="adjustment">numberBaseAdj</property>
+                            <property name="numeric">True</property>
+                            <signal name="value-changed" handler="valueChangeNumberBase" swapped="no"/>
+                            <child internal-child="accessible">
+                              <object class="AtkObject" id="sbNumberBase-atkobject">
+                                <property name="AtkObject::accessible-name" translatable="yes">number base</property>
+                              </object>
+                            </child>
+                          </object>
+                          <packing>
+                            <property name="left-attach">3</property>
+                            <property name="top-attach">0</property>
                           </packing>
                         </child>
                       </object>
@@ -1108,6 +1157,7 @@ Use a negative index to set one relative the the back</property>
                             <property name="visible">True</property>
                             <property name="can-focus">True</property>
                             <property name="tooltip-text" translatable="yes">Date format</property>
+                            <property name="max-length">4095</property>
                             <signal name="changed" handler="valueChangeEtDate" swapped="no"/>
                             <child internal-child="accessible">
                               <object class="AtkObject" id="etDateFormat-atkobject">

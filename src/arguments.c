@@ -7,32 +7,32 @@
 #endif
 
 char* validateFilename(const char* name) {
-	const char* pos = strpbrk(name, INVALID_FNCHARS);
-	if (!pos)
+	size_t len = strcspn(name, INVALID_FNCHARS);
+	if (!name[len])
 		return NULL;
 
+	const char* pos = name;
 	char* str = g_malloc(strlen(name) * sizeof(char));
 	char* out = str;
-	const char* last = name;
 	do {
-		size_t len = pos - last;
-		memcpy(out, last, len);
+		memcpy(out, pos, len);
 		out += len;
-		last = pos + 1;
-		pos = strpbrk(last, INVALID_FNCHARS);
-	} while (pos);
-	strcpy(out, last);
+		pos += len;
+		pos += strspn(pos, INVALID_FNCHARS);
+		len = strcspn(pos, INVALID_FNCHARS);
+	} while (pos[len]);
+	memcpy(out, pos, (len + 1) * sizeof(char));
 	return str;
 }
 
-static void checkArgName(gchar** name, bool validate) {
+static void checkArgName(char** name, bool validate) {
 	if (*name) {
 		size_t len = strlen(*name);
 		if (len >= FILENAME_MAX) {
 			g_printerr("Filename '%s' is too long\n", *name);
 			g_free(*name);
 			*name = NULL;
-		} else {
+		} else if (validate) {
 			char* str = validateFilename(*name);
 			if (str) {
 				g_free(*name);
@@ -40,6 +40,18 @@ static void checkArgName(gchar** name, bool validate) {
 			}
 		}
 	}
+}
+
+static int64_t getArgInt(char** text, uint8_t base, int64_t def) {
+	if (!*text)
+		return def;
+
+	char* alt = sanitizeNumber(*text, base);
+	if (alt) {
+		g_printerr("Number sanitized from '%s' to '%s'\n", *text, alt);
+		*text = alt;
+	}
+	return MAX(strToLlong(*text, base), -INT64_MAX);
 }
 
 static RenameMode parseRenameMode(gchar* mode, char** name, char** replace) {
@@ -116,9 +128,9 @@ void processArgumentOptions(Arguments* arg) {
 	checkArgName(&arg->addSuffix, true);
 
 	arg->numberLocation = CLAMP(arg->numberLocation, -FILENAME_MAX + 1, FILENAME_MAX);
-	arg->numberStart = MAX(arg->numberStart, -INT64_MAX);
-	arg->numberStep = MAX(arg->numberStep, -INT64_MAX);
 	arg->numberBase = CLAMP(arg->numberBase, 2, 64);
+	arg->numberStart = getArgInt(&arg->numberStartStr, arg->numberBase, 0);
+	arg->numberStep = getArgInt(&arg->numberStepStr, arg->numberBase, 1);
 	arg->numberPadding = CLAMP(arg->numberPadding, 1, MAX_DIGITS_I64B);
 	checkArgName(&arg->numberPadStr, true);
 	if (!arg->numberPadStr) {
@@ -136,10 +148,8 @@ void processArgumentOptions(Arguments* arg) {
 }
 
 void initCommandLineArguments(GApplication* app, Arguments* arg, int argc, char** argv) {
-	memset(arg, 0, sizeof(Arguments));
 	arg->extensionElements = -1;
 	arg->numberLocation = -1;
-	arg->numberStep = 1;
 	arg->numberBase = 10;
 	arg->numberPadding = 1;
 	arg->dateLocation = -1;
@@ -159,17 +169,14 @@ void initCommandLineArguments(GApplication* app, Arguments* arg, int argc, char*
 
 	GOptionEntry params[] = {
 #ifdef CONSOLE
-		{ "no-auto-preview", 'a', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE, &arg->noAutoPreview, "\n\tDisable verbose output.\n", NULL },
-		{ "no-details", 'q', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE, &arg->noShowDetails, "\n\tThis option is ignored. It exists for compatibility reasons.\n", NULL },
 		{ "no-gui", 'g', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE, &arg->noGui, "\n\tThis option is ignored. It exists for compatibility reasons.\n", NULL },
 #else
-		{ "no-auto-preview", 'a', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE, &arg->noAutoPreview, "\n\tDisable auto preview.\n\tWhen combined with --no-gui it will disable verbose output.\n", NULL },
-		{ "no-details", 'q', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE, &arg->noShowDetails, "\n\tDisable showing file details.\n", NULL },
 		{ "no-gui", 'g', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE, &arg->noGui, "\n\tDon't open a window and only process the files.\n", NULL },
 #endif
 		{ "dry", 'y', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE, &arg->dry, "\n\tWhen combined with --no-gui the new filenames will be shown without renaming any files.\n", NULL },
-		{ "abort", 'Z', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE, &arg->msgAbort, "\n\tAbort the renaming process when an error occurs.\n\tIf this option or --continue aren't set, the user will be asked whether to continue.\n", NULL },
+		{ "verbose", 'v', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE, &arg->verbose, "\n\tEnable verbose output.\n", NULL },
 		{ "continue", 'z', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE, &arg->msgContinue, "\n\tContinue the renaming process even if an error occurs.\n\tIf this option or --abort aren't set, the user will be asked whether to continue.\n", NULL },
+		{ "abort", 'Z', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE, &arg->msgAbort, "\n\tAbort the renaming process when an error occurs.\n\tIf this option or --continue aren't set, the user will be asked whether to continue.\n", NULL },
 		{ "backwards", 'b', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE, &arg->backwards, "\n\tRename the files in backwards order.\n\tUseful for when filenames might overlap during the process.\n", NULL },
 		{ "add-insert", 'j', G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING, &arg->addInsert, "\n\tInsert a string at the location specified by --add-at.\n", "STRING" },
 		{ "add-at", 'k', G_OPTION_FLAG_NONE, G_OPTION_ARG_INT64, &arg->addAt, "\n\tInsert the string set by --add-insert at this index.\n\tA negative index can be used to set a location relative to a filename's length.\n\tDefault value is 0.\n", "INDEX" },
@@ -187,9 +194,10 @@ void initCommandLineArguments(GApplication* app, Arguments* arg, int argc, char*
 		{ "extension-regex", 'X', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE, &arg->extensionRegex, "\n\tUse the string set by --extension-name as a regular expression when --extension-mode is set to \"replace\".\n", NULL },
 		{ "extension-elements", 'E', G_OPTION_FLAG_NONE, G_OPTION_ARG_INT64, &arg->extensionElements, "\n\tThe number of dots to consider part of a filename an extension.\n\tA positive value counts from the back while a negative value counts from the front.\n\tA number of 0 will use all dots, excluding an initial dot.\n\tDefault value is 0.\n", "NUMBER" },
 		{ "number-location", 'K', G_OPTION_FLAG_NONE, G_OPTION_ARG_INT64, &arg->numberLocation, "\n\tAn index where to insert a number into a filename.\n\tA negative index can be used to set a location relative to a filename's length.\n\tDefault value is -1.\n", "INDEX" },
-		{ "number-start", 'L', G_OPTION_FLAG_NONE, G_OPTION_ARG_INT64, &arg->numberStart, "\n\tA starting number for the numbering.\n\tDefault value is 0.\n", "START" },
-		{ "number-step", 'T', G_OPTION_FLAG_NONE, G_OPTION_ARG_INT64, &arg->numberStep, "\n\tThe increment for the numbering.\n\tDefault value is 1.\n", "INCREMENT" },
+		{ "number-start", 'L', G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING, &arg->numberStartStr, "\n\tA starting number for the numbering.\n\tMust be in the numerical system set by --number-base.\n\tDefault value is 0.\n", "START" },
+		{ "number-step", 'T', G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING, &arg->numberStepStr, "\n\tThe increment for the numbering.\n\tMust be in the numerical system set by --number-base.\n\tDefault value is 1.\n", "INCREMENT" },
 		{ "number-base", 'B', G_OPTION_FLAG_NONE, G_OPTION_ARG_INT64, &arg->numberBase, "\n\tThe base for which numerical system to use.\n\tCan be between 2 and 64 and is 10 by default.\n", "BASE" },
+		{ "number-lower", 'u', G_OPTION_FLAG_NONE, G_OPTION_ARG_NONE, &arg->numberLower, "\n\tUse small letters for numbers of a radix above 10 and below 37.\n", NULL },
 		{ "number-padding", 'G', G_OPTION_FLAG_NONE, G_OPTION_ARG_INT64, &arg->numberPadding, "\n\tA padding number for at least how many digits to print.\n\tSaid digits are set by --number-padstr.\n\tDefault value is 1 i.e. no padding.\n", "NUMBER" },
 		{ "number-padstr", 'C', G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING, &arg->numberPadStr, "\n\tWhat padding string to use for when --number-padding is set.\n\tDefault value is \"0\".\n", "STRING" },
 		{ "number-prefix", 'P', G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING, &arg->numberPrefix, "\n\tPrefix the number with this string.\n", "STRING" },
@@ -216,4 +224,21 @@ loopEnd:
 	g_application_add_main_option_entries(app, params);
 	g_application_set_option_context_parameter_string(app, "[FILE\xE2\x80\xA6]");
 	g_application_set_option_context_summary(app, "Simple Fucking Bulk Rename: A small tool for batch renaming files.");
+}
+
+void freeArguments(Arguments* arg) {
+	g_free(arg->extensionName);
+	g_free(arg->extensionReplace);
+	g_free(arg->rename);
+	g_free(arg->replace);
+	g_free(arg->addInsert);
+	g_free(arg->addPrefix);
+	g_free(arg->addSuffix);
+	g_free(arg->numberStartStr);
+	g_free(arg->numberStepStr);
+	g_free(arg->numberPadStr);
+	g_free(arg->numberPrefix);
+	g_free(arg->numberSuffix);
+	g_free(arg->dateFormat);
+	g_free(arg->destination);
 }

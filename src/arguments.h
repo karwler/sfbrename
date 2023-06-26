@@ -4,8 +4,6 @@
 #include "utils.h"
 
 typedef struct Arguments {
-	GFile** files;
-	size_t nFiles;
 	char* extensionModeStr;
 	char* extensionName;
 	char* extensionReplace;
@@ -15,6 +13,8 @@ typedef struct Arguments {
 	char* addInsert;
 	char* addPrefix;
 	char* addSuffix;
+	char* numberStartStr;
+	char* numberStepStr;
 	char* numberPadStr;
 	char* numberPrefix;
 	char* numberSuffix;
@@ -22,27 +22,27 @@ typedef struct Arguments {
 	char* dateFormat;
 	char* destinationModeStr;
 	char* destination;
-	int64 extensionElements;
-	int64 removeFrom;
-	int64 removeTo;
-	int64 removeFirst;
-	int64 removeLast;
-	int64 addAt;
-	int64 numberLocation;
-	int64 numberStart;
-	int64 numberStep;
-	int64 numberBase;
-	int64 numberPadding;
-	int64 dateLocation;
+	int64_t extensionElements;
+	int64_t removeFrom;
+	int64_t removeTo;
+	int64_t removeFirst;
+	int64_t removeLast;
+	int64_t addAt;
+	int64_t numberLocation;
+	int64_t numberStart;
+	int64_t numberStep;
+	int64_t numberBase;
+	int64_t numberPadding;
+	int64_t dateLocation;
 	gboolean extensionCi;
 	gboolean extensionRegex;
 	gboolean replaceCi;
 	gboolean replaceRegex;
+	gboolean numberLower;
 	gboolean backwards;
-	gboolean noAutoPreview;
-	gboolean noShowDetails;
 	gboolean noGui;
 	gboolean dry;
+	gboolean verbose;
 	gboolean msgAbort;
 	gboolean msgContinue;
 
@@ -56,5 +56,6 @@ typedef struct Arguments {
 char* validateFilename(const char* name);
 void processArgumentOptions(Arguments* arg);
 void initCommandLineArguments(GApplication* app, Arguments* arg, int argc, char** argv);
+void freeArguments(Arguments* arg);
 
 #endif

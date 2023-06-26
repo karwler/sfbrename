@@ -1,5 +1,5 @@
-#ifndef COMMON_H
-#define COMMON_H
+#ifndef UTILS_H
+#define UTILS_H
 
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
@@ -17,22 +17,24 @@
 #include <stdlib.h>
 
 #define MAX_DIGITS_I64B 64
+#define DIGIT2CHAR_UPPER "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-"
+#define DIGIT2CHAR_LOWER "0123456789abcdefghijklmnopqrstuvwxyz"
+#define DIGIT2CHAR_BASE64URL "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
 #define DEFAULT_DATE_FORMAT "%F"
 
-typedef wchar_t wchar;
+#define pickDigitChars(base, upper) ((base) < 64 ? (upper) || (base) > 36 ? DIGIT2CHAR_UPPER : DIGIT2CHAR_LOWER : DIGIT2CHAR_BASE64URL)
+#define noop(x) (x)
+
+typedef unsigned char uchar;
 typedef unsigned short ushort;
 typedef unsigned uint;
 typedef unsigned long ulong;
 typedef long long llong;
 typedef unsigned long long ullong;
-typedef int8_t int8;
-typedef uint8_t uint8;
-typedef uint16_t uint16;
-typedef int64_t int64;
-typedef uint64_t uint64;
 
 typedef struct Arguments Arguments;
 typedef struct Process Process;
+typedef struct Settings Settings;
 typedef struct Window Window;
 
 typedef enum RenameMode {
@@ -53,9 +55,7 @@ typedef enum DestinationMode {
 
 typedef enum DateMode {
 	DATE_NONE,
-#ifndef _WIN32
 	DATE_CREATE,
-#endif
 	DATE_MODIFY,
 	DATE_ACCESS,
 	DATE_CHANGE
@@ -112,29 +112,45 @@ typedef struct AsyncMessage {
 } AsyncMessage;
 
 typedef struct FileInfo {
-#ifndef _WIN32
-	const struct passwd* pwd;
-	const struct group* grp;
-#endif
 	char* size;
-#ifndef _WIN32
+	char* user;
+	char* group;
 	char create[20];
-#endif
 	char modify[20];
 	char access[20];
 	char change[20];
+#ifdef _WIN32
+	char perms[2];
+#else
 	char perms[11];
+#endif
 } FileInfo;
 
 void runThread(Window* win, ThreadCode code, GThreadFunc proc, GSourceFunc fin, void* data);
 void finishThread(Window* win);
 void setFileInfo(const char* file, FileInfo* info);
+void freeFileInfo(FileInfo* info);
+GtkTreeRowReference** getTreeViewSelectedRowRefs(GtkTreeView* view, GtkTreeModel** model, uint* cnt);
+void sortTreeViewColumn(GtkTreeView* treeView, GtkListStore* listStore, int colId, bool ascending);
+char* showInputText(GtkWindow* parent, const char* title, const char* label, const char* text);
 #endif
 ResponseType showMessageV(Window* win, MessageType type, ButtonsType buttons, const char* format, va_list args);
 ResponseType showMessage(Window* win, MessageType type, ButtonsType buttons, const char* format, ...);
+char* sanitizeNumber(const char* text, uint8_t base);
+llong strToLlong(const char* str, uint8_t base);
+size_t llongToRevStr(char* buf, llong num, uint8_t base, const char* digits);
+size_t llongToStr(char* buf, llong num, uint8_t base, bool upper);
+char* newStrncat(uint n, ...);
+
 #ifdef _WIN32
 void* memrchr(const void* s, int c, size_t n);
+wchar_t* stow(const char* src);
+char* wtos(const wchar_t* src);
 void unbackslashify(char* path);
+
+#define mkdirCommon(path) mkdir(path)
+#else
+#define mkdirCommon(path) mkdir(path, S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH)
 #endif
 
 #endif

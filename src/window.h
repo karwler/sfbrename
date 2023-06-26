@@ -1,6 +1,7 @@
-#ifndef UTILS_H
-#define UTILS_H
+#ifndef WINDOW_H
+#define WINDOW_H
 
+#ifndef CONSOLE
 #include "settings.h"
 
 typedef enum FileColumn {
@@ -18,26 +19,19 @@ typedef enum FileColumn {
 	FCOL_GROUP
 } FileColumn;
 
-#ifndef CONSOLE
 typedef enum Sorting {
 	SORT_NONE,
 	SORT_ASC,
 	SORT_DSC
 } Sorting;
-#endif
 
 typedef struct Window {
 	Process* proc;
-#ifdef CONSOLE
-	GApplication* app;
-#else
-	GtkApplication* app;
-#endif
-	Arguments* args;
-
-#ifndef CONSOLE
+	const Arguments* args;
 	Settings sets;
 	GThread* thread;
+	GtkTreeIter lastFile;
+	GtkTreeIter* lastFilePtr;
 
 	GtkApplicationWindow* window;
 	GtkButton* btAddFiles;
@@ -83,6 +77,7 @@ typedef struct Window {
 	GtkCheckButton* cbNumber;
 	GtkSpinButton* sbNumberLocation;
 	GtkSpinButton* sbNumberBase;
+	GtkCheckButton* cbNumberUpper;
 	GtkSpinButton* sbNumberStart;
 	GtkSpinButton* sbNumberStep;
 	GtkSpinButton* sbNumberPadding;
@@ -105,12 +100,17 @@ typedef struct Window {
 	_Atomic ThreadCode threadCode;
 	Sorting nameSort;
 	Sorting directorySort;
-#endif
 	bool dryAuto;
 } Window;
 
-#ifndef CONSOLE
+void setWidgetsSensitive(Window* win, bool sensitive);
+G_MODULE_EXPORT void clickAddFiles(GtkButton* button, Window* win);
+G_MODULE_EXPORT void clickAddFolders(GtkButton* button, Window* win);
+void activateClear(GtkMenuItem* item, Window* win);
 void autoPreview(Window* win);
+Window* openWindow(GtkApplication* app, const Arguments* arg, Process* prc, GFile** files, size_t nFiles);
+void freeWindow(Window* win);
+
 #endif
 
 #endif

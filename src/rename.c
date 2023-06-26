@@ -1,6 +1,6 @@
 #include "arguments.h"
-#include "main.h"
 #include "rename.h"
+#include "window.h"
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -11,7 +11,6 @@
 #include <sys/sendfile.h>
 #endif
 
-#define MAX_DIGITS_I32D 10
 #define CONTINUE_TEXT "\nContinue?"
 
 #ifndef CONSOLE
@@ -23,22 +22,9 @@ typedef struct TableUpdate {
 #endif
 
 #ifdef _WIN32
-static wchar* stow(const char* src) {
-	wchar* dst;
-	int len = MultiByteToWideChar(CP_UTF8, 0, src, -1, NULL, 0);
-	if (len > 1) {
-		dst = malloc(len * sizeof(wchar));
-		MultiByteToWideChar(CP_UTF8, 0, src, -1, dst, len);
-	} else {
-		dst = malloc(sizeof(wchar));
-		dst[0] = '\0';
-	}
-	return dst;
-}
-
 static int createSymlink(const char* target, const char* path) {
-	wchar* wpath = stow(path);
-	wchar* wtarget = stow(target);
+	wchar_t* wpath = stow(path);
+	wchar_t* wtarget = stow(target);
 	DWORD attr = GetFileAttributesW(wtarget);
 	DWORD flags = attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY) ? SYMBOLIC_LINK_FLAG_DIRECTORY : 0;
 	int rc = !CreateSymbolicLinkW(wpath, wtarget, flags);
@@ -93,8 +79,8 @@ static int copyFile(const char* src, const char* dst) {
 		break; }
 	case S_IFREG: {
 #ifdef _WIN32
-		wchar* wsrc = stow(src);
-		wchar* wdst = stow(dst);
+		wchar_t* wsrc = stow(src);
+		wchar_t* wdst = stow(dst);
 		rc = !CopyFileW(wsrc, wdst, false);
 		free(wsrc);
 		free(wdst);
@@ -328,17 +314,10 @@ static ResponseType nameAdd(Process* prc, Window* win) {
 }
 
 static ResponseType nameNumber(Process* prc, Window* win) {
-	int64 val = (int64)prc->id * prc->numberStep + prc->numberStart;
+	int64_t val = (int64_t)prc->id * prc->numberStep + prc->numberStart;
 	bool negative = val < 0;
-	const char* digits = prc->numberBase < 64 ? "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz+" : "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 	char buf[MAX_DIGITS_I64B];
-	size_t blen = 0;
-	if (val) {
-		for (uint64 num = !negative ? val : -val; num; num /= prc->numberBase)
-			buf[blen++] = digits[num % prc->numberBase];
-	} else
-		buf[blen++] = '0';
-
+	size_t blen = llongToRevStr(buf, val, prc->numberBase, prc->numberDigits);
 	size_t padLeft = blen < prc->numberPadding && prc->numberPadStrLen ? (prc->numberPadding - blen) * prc->numberPadStrLen : 0;
 	size_t pbslen = prc->numberPrefixLen + negative + padLeft + blen + prc->numberSuffixLen;
 	if (prc->nameLen + pbslen >= FILENAME_MAX)
@@ -362,27 +341,38 @@ static ResponseType nameDate(Process* prc, Window* win) {
 	if (prc->dateMode == DATE_NONE)
 		return RESPONSE_NONE;
 
-#ifdef _WIN32
-	struct stat ps;
-	if (stat(prc->original, &ps))
-#else
-	struct statx ps;
-	if (statx(-1, prc->original, AT_SYMLINK_NOFOLLOW | AT_STATX_SYNC_AS_STAT, STATX_TYPE | STATX_MODE | STATX_UID | STATX_GID | STATX_ATIME | STATX_MTIME | STATX_CTIME | STATX_SIZE | STATX_BTIME, &ps))
-#endif
-		return continueError(prc, win, "Failed to retrieve file info: %s", strerror(errno));
-
 	GDateTime* date;
-	switch (prc->dateMode) {
 #ifdef _WIN32
-	case DATE_MODIFY:
-		date = g_date_time_new_from_unix_local(ps.st_mtime);
+	wchar_t* path = stow(prc->original);
+	HANDLE fh = CreateFileW(path, FILE_READ_ATTRIBUTES | STANDARD_RIGHTS_READ | SYNCHRONIZE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+	free(path);
+	if (fh == INVALID_HANDLE_VALUE)
+		return continueError(prc, win, "Failed to retrieve file info");
+
+	FILETIME ft, lf;
+	SYSTEMTIME st;
+	BOOL ok;
+	switch (prc->dateMode) {
+	case DATE_CREATE:
+		ok = GetFileTime(fh, &ft, NULL, NULL);
+		break;
+	case DATE_MODIFY: case DATE_CHANGE:
+		ok = GetFileTime(fh, NULL, NULL, &ft);
 		break;
 	case DATE_ACCESS:
-		date = g_date_time_new_from_unix_local(ps.st_atime);
-		break;
-	case DATE_CHANGE:
-		date = g_date_time_new_from_unix_local(ps.st_ctime);
+		ok = GetFileTime(fh, NULL, &ft, NULL);
+	}
+	ok = ok && FileTimeToLocalFileTime(&ft, &lf) && FileTimeToSystemTime(&lf, &st);
+	CloseHandle(fh);
+	if (!ok)
+		return continueError(prc, win, "Failed to retrieve file info");
+	date = g_date_time_new_local(st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
 #else
+	struct statx ps;
+	if (statx(-1, prc->original, AT_SYMLINK_NOFOLLOW | AT_STATX_SYNC_AS_STAT, prc->statMask, &ps))
+		return continueError(prc, win, "Failed to retrieve file info: %s", strerror(errno));
+
+	switch (prc->dateMode) {
 	case DATE_CREATE:
 		date = g_date_time_new_from_unix_local(ps.stx_btime.tv_sec);
 		break;
@@ -394,8 +384,8 @@ static ResponseType nameDate(Process* prc, Window* win) {
 		break;
 	case DATE_CHANGE:
 		date = g_date_time_new_from_unix_local(ps.stx_ctime.tv_sec);
-#endif
 	}
+#endif
 	char* dstr = g_date_time_format(date, prc->dateFormat);
 	g_date_time_unref(date);
 	if (!dstr)
@@ -516,9 +506,7 @@ static void freeRegexes(Process* prc) {
 		 g_regex_unref(prc->regRename);
 }
 
-static bool initRename(Process* prc, Arguments* arg, Window* win) {
-	prc->messageBehavior = arg->msgAbort ? MSGBEHAVIOR_ABORT : arg->msgContinue ? MSGBEHAVIOR_CONTINUE : MSGBEHAVIOR_ASK;
-
+static bool initRename(Process* prc, Window* win) {
 	if (!g_utf8_validate(prc->extensionName, prc->extensionNameLen, NULL)) {
 		showMessage(win, MESSAGE_ERROR, BUTTONS_OK, "Invalid UTF-8 extension name");
 		return false;
@@ -562,7 +550,7 @@ static bool initRename(Process* prc, Arguments* arg, Window* win) {
 	if (!g_utf8_validate(prc->dateFormat, prc->dateFormatLen, NULL)) {
 		showMessage(win, MESSAGE_ERROR, BUTTONS_OK, "Invalid UTF-8 date format");
 		return false;
-		}
+	}
 	if (!g_utf8_validate(prc->destination, prc->destinationLen, NULL)) {
 		showMessage(win, MESSAGE_ERROR, BUTTONS_OK, "Invalid UTF-8 destination path");
 		return false;
@@ -574,6 +562,22 @@ static bool initRename(Process* prc, Arguments* arg, Window* win) {
 		freeRegexes(prc);
 		return false;
 	}
+
+#ifndef _WIN32
+	switch (prc->dateMode) {
+	case DATE_CREATE:
+		prc->statMask = STATX_BTIME;
+		break;
+	case DATE_MODIFY:
+		prc->statMask = STATX_MTIME;
+		break;
+	case DATE_ACCESS:
+		prc->statMask = STATX_ATIME;
+		break;
+	case DATE_CHANGE:
+		prc->statMask = STATX_CTIME;
+	}
+#endif
 	return true;
 }
 
@@ -626,6 +630,7 @@ static bool initWindowRename(Window* win) {
 	prc->replaceRegex = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(win->cbReplaceRegex));
 	prc->number = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(win->cbNumber));
 	prc->numberBase = gtk_spin_button_get_value_as_int(win->sbNumberBase);
+	prc->numberDigits = pickDigitChars(prc->numberBase, gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(win->cbNumberUpper)));
 	prc->forward = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(win->cbDestinationForward));
 	prc->total = gtk_tree_model_iter_n_children(prc->model, NULL);
 	prc->id = prc->forward ? 0 : prc->total - 1;
@@ -639,12 +644,12 @@ static bool initWindowRename(Window* win) {
 		prc->destinationMode = DESTINATION_IN_PLACE;
 		gtk_combo_box_set_active(GTK_COMBO_BOX(win->cmbDestinationMode), DESTINATION_IN_PLACE);
 	}
-	return initRename(prc, win->args, win);
+	return initRename(prc, win);
 }
 #endif
 
-static bool initConsoleRename(Process* prc, Arguments* arg) {
-	if (!arg->files)
+static bool initConsoleRename(Process* prc, const Arguments* arg, GFile** files, size_t nFiles) {
+	if (!files)
 		return false;
 	prc->extensionName = arg->extensionName ? arg->extensionName : "";
 	prc->extensionReplace = arg->extensionReplace ? arg->extensionReplace : "";
@@ -659,7 +664,7 @@ static bool initConsoleRename(Process* prc, Arguments* arg) {
 	prc->dateFormat = arg->dateFormat ? arg->dateFormat : DEFAULT_DATE_FORMAT;
 	prc->destination = arg->destination ? arg->destination : "";
 	prc->forward = !arg->backwards;
-	prc->total = arg->nFiles;
+	prc->total = nFiles;
 	prc->id = prc->forward ? 0 : prc->total - 1;
 	prc->step = prc->forward ? 1 : -1;
 	prc->numberStart = arg->numberStart;
@@ -695,69 +700,20 @@ static bool initConsoleRename(Process* prc, Arguments* arg) {
 	prc->replaceRegex = arg->replaceRegex;
 	prc->number = arg->number;
 	prc->numberBase = arg->numberBase;
+	prc->numberDigits = pickDigitChars(arg->numberBase, !arg->numberLower);
 	if (!arg->destination)
 		prc->destinationMode = DESTINATION_IN_PLACE;
-	return initRename(prc, arg, NULL);
+	return initRename(prc, NULL);
 }
 
 #ifndef CONSOLE
-static void setProgressBar(GtkProgressBar* bar, size_t pos, size_t total, bool fwd) {
+void setProgressBar(GtkProgressBar* bar, size_t pos, size_t total, bool fwd) {
 	if (!fwd)
 		pos = total - pos - 1;
 	char text[MAX_DIGITS_I32D * 2 + 2];
 	snprintf(text, sizeof(text) / sizeof(*text), "%zu/%zu", pos, total);
 	gtk_progress_bar_set_fraction(bar, (double)pos / (double)total);
 	gtk_progress_bar_set_text(bar, text);
-}
-
-void setWidgetsSensitive(Window* win, bool sensitive) {
-	Process* prc = win->proc;
-	gtk_widget_set_sensitive(GTK_WIDGET(win->btAddFiles), sensitive);
-	gtk_widget_set_sensitive(GTK_WIDGET(win->btAddFolders), sensitive);
-	gtk_widget_set_sensitive(GTK_WIDGET(win->btOptions), sensitive);
-	gtk_widget_set_sensitive(GTK_WIDGET(win->tblFiles), sensitive);
-	gtk_widget_set_sensitive(GTK_WIDGET(win->cmbExtensionMode), sensitive);
-	gtk_widget_set_sensitive(GTK_WIDGET(win->etExtension), sensitive);
-	gtk_widget_set_sensitive(GTK_WIDGET(win->etExtensionReplace), sensitive);
-	gtk_widget_set_sensitive(GTK_WIDGET(win->cbExtensionCi), sensitive);
-	gtk_widget_set_sensitive(GTK_WIDGET(win->cbExtensionRegex), sensitive);
-	gtk_widget_set_sensitive(GTK_WIDGET(win->sbExtensionElements), sensitive);
-	gtk_widget_set_sensitive(GTK_WIDGET(win->cmbRenameMode), sensitive);
-	gtk_widget_set_sensitive(GTK_WIDGET(win->etRename), sensitive);
-	gtk_widget_set_sensitive(GTK_WIDGET(win->etReplace), sensitive);
-	gtk_widget_set_sensitive(GTK_WIDGET(win->cbReplaceCi), sensitive);
-	gtk_widget_set_sensitive(GTK_WIDGET(win->cbReplaceRegex), sensitive);
-	gtk_widget_set_sensitive(GTK_WIDGET(win->sbRemoveFrom), sensitive);
-	gtk_widget_set_sensitive(GTK_WIDGET(win->sbRemoveTo), sensitive);
-	gtk_widget_set_sensitive(GTK_WIDGET(win->sbRemoveFirst), sensitive);
-	gtk_widget_set_sensitive(GTK_WIDGET(win->sbRemoveLast), sensitive);
-	gtk_widget_set_sensitive(GTK_WIDGET(win->etAddInsert), sensitive);
-	gtk_widget_set_sensitive(GTK_WIDGET(win->sbAddAt), sensitive);
-	gtk_widget_set_sensitive(GTK_WIDGET(win->etAddPrefix), sensitive);
-	gtk_widget_set_sensitive(GTK_WIDGET(win->etAddSuffix), sensitive);
-	gtk_widget_set_sensitive(GTK_WIDGET(win->cbNumber), sensitive);
-	gtk_widget_set_sensitive(GTK_WIDGET(win->sbNumberLocation), sensitive);
-	gtk_widget_set_sensitive(GTK_WIDGET(win->sbNumberBase), sensitive);
-	gtk_widget_set_sensitive(GTK_WIDGET(win->sbNumberStart), sensitive);
-	gtk_widget_set_sensitive(GTK_WIDGET(win->sbNumberStep), sensitive);
-	gtk_widget_set_sensitive(GTK_WIDGET(win->sbNumberPadding), sensitive);
-	gtk_widget_set_sensitive(GTK_WIDGET(win->etNumberPadding), sensitive);
-	gtk_widget_set_sensitive(GTK_WIDGET(win->etNumberPrefix), sensitive);
-	gtk_widget_set_sensitive(GTK_WIDGET(win->etNumberSuffix), sensitive);
-	gtk_widget_set_sensitive(GTK_WIDGET(win->cmbDateMode), sensitive);
-	gtk_widget_set_sensitive(GTK_WIDGET(win->etDateFormat), sensitive);
-	gtk_widget_set_sensitive(GTK_WIDGET(win->sbDateLocation), sensitive);
-	gtk_widget_set_sensitive(GTK_WIDGET(win->cmbDestinationMode), sensitive);
-	gtk_widget_set_sensitive(GTK_WIDGET(win->etDestination), sensitive);
-	gtk_widget_set_sensitive(GTK_WIDGET(win->btDestination), sensitive);
-	gtk_widget_set_sensitive(GTK_WIDGET(win->btPreview), sensitive);
-	gtk_widget_set_sensitive(GTK_WIDGET(win->cbDestinationForward), sensitive);
-	if (sensitive)
-		gtk_button_set_label(win->btRename, "Rename");
-	else {
-		gtk_button_set_label(win->btRename, "Abort");
-		setProgressBar(win->pbRename, 0, prc->total, true);
-	}
 }
 
 static void setOriginalNameWindow(Process* prc, char** name, size_t* nameLen, char** dirc, size_t* dircLen) {
@@ -769,8 +725,8 @@ static void setOriginalNameWindow(Process* prc, char** name, size_t* nameLen, ch
 }
 #endif
 
-static void setOriginalNameConsole(Process* prc, Arguments* arg, size_t* plen) {
-	const char* path = g_file_peek_path(arg->files[prc->id]);
+static void setOriginalNameConsole(Process* prc, GFile** files, size_t* plen) {
+	const char* path = g_file_peek_path(files[prc->id]);
 	*plen = strlen(path);
 	memcpy(prc->original, path, (*plen + 1) * sizeof(char));
 #ifdef _WIN32
@@ -826,7 +782,7 @@ gboolean updateProgressBar(Window* win) {
 }
 
 static gboolean updateTableNames(TableUpdate* tu) {
-	gtk_list_store_set(tu->win->lsFiles, &tu->iter, FCOL_OLD_NAME, tu->name, FCOL_NEW_NAME, tu->name, FCOL_INVALID);
+	gtk_list_store_set(tu->win->lsFiles, &tu->iter, FCOL_OLD_NAME, tu->name, FCOL_INVALID);
 	free(tu);
 	return G_SOURCE_REMOVE;
 }
@@ -859,7 +815,7 @@ static void* windowRenameProc(Window* win) {
 				TableUpdate* tu = malloc(sizeof(TableUpdate));
 				tu->win = win;
 				tu->iter = prc->it;
-				memcpy(tu->name, prc->name + prc->dstdirLen, (prc->nameLen + 1) * sizeof(char));
+				memcpy(tu->name, prc->name, (prc->nameLen + 1) * sizeof(char));
 				g_idle_add(G_SOURCE_FUNC(updateTableNames), tu);
 			}
 		}
@@ -904,10 +860,8 @@ void windowPreview(Window* win) {
 }
 #endif
 
-void consoleRename(Window* win) {
-	Process* prc = win->proc;
-	Arguments* arg = win->args;
-	if (!initConsoleRename(prc, arg))
+void consoleRename(Process* prc, const Arguments* arg, GFile** files, size_t nFiles) {
+	if (!initConsoleRename(prc, arg, files, nFiles))
 		return;
 	if (!initDestination(prc, NULL))
 		return;
@@ -915,7 +869,7 @@ void consoleRename(Window* win) {
 	ResponseType rc;
 	size_t plen;
 	do {
-		setOriginalNameConsole(prc, arg, &plen);
+		setOriginalNameConsole(prc, files, &plen);
 		const char* oldn = memrchr(prc->original, '/', plen * sizeof(char));
 		if (oldn) {
 			++oldn;
@@ -936,7 +890,7 @@ void consoleRename(Window* win) {
 		rc = processName(prc, oldn, olen, NULL);
 		if (rc == RESPONSE_NONE) {
 			rc = processFile(prc, oldn, olen, NULL);
-			if (rc == RESPONSE_NONE && !arg->noAutoPreview) {
+			if (rc == RESPONSE_NONE && arg->verbose) {
 				if (prc->destinationMode == DESTINATION_IN_PLACE)
 					g_print("'%s' -> '%s'\n", oldn, prc->name);
 				else
@@ -944,20 +898,18 @@ void consoleRename(Window* win) {
 			}
 		}
 		prc->id += prc->step;
-	} while ((rc == RESPONSE_NONE || rc == RESPONSE_YES) && prc->id < arg->nFiles);
+	} while ((rc == RESPONSE_NONE || rc == RESPONSE_YES) && prc->id < nFiles);
 	freeRegexes(prc);
 }
 
-void consolePreview(Window* win) {
-	Process* prc = win->proc;
-	Arguments* arg = win->args;
-	if (!initConsoleRename(prc, arg))
+void consolePreview(Process* prc, const Arguments* arg, GFile** files, size_t nFiles) {
+	if (!initConsoleRename(prc, arg, files, nFiles))
 		return;
 
 	ResponseType rc;
 	size_t olen;
 	do {
-		setOriginalNameConsole(prc, arg, &olen);
+		setOriginalNameConsole(prc, files, &olen);
 		const char* oldn = memrchr(prc->original, '/', olen * sizeof(char));
 		if (oldn)
 			olen = prc->original + olen - ++oldn;
@@ -968,6 +920,6 @@ void consolePreview(Window* win) {
 		if (rc == RESPONSE_NONE)
 			g_print("'%s' -> '%s'\n", oldn, prc->name);
 		prc->id += prc->step;
-	} while ((rc == RESPONSE_NONE || rc == RESPONSE_YES) && prc->id < arg->nFiles);
+	} while ((rc == RESPONSE_NONE || rc == RESPONSE_YES) && prc->id < nFiles);
 	freeRegexes(prc);
 }
